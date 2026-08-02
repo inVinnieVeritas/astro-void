@@ -315,7 +315,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     x: 0,
     y: 0,
     radius: 16,
-    angle: 0,
+    angle: -Math.PI / 2,
     rotation: 0,
     thrusting: false,
     reverse: false,
@@ -1452,7 +1452,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     ship.x = w / 2;
     ship.y = h * 0.7; // Lower half of the screen
     ship.thrust = { x: 0, y: 0 };
-    ship.angle = 0;
+    ship.angle = -Math.PI / 2;
     ship.alive = true;
     ship.invincibleTimer = 300; // 5 seconds extended invincibility on spawn/respawn!
     ship.hullPower = 100;
