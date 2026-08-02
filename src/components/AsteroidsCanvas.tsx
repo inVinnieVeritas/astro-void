@@ -187,6 +187,7 @@ function getRedHexagonInnerSprite(): HTMLCanvasElement {
 
 interface AsteroidsCanvasProps {
   gameMode: GameMode;
+  initialWave?: number;
   controlScheme: ControlScheme;
   isPaused: boolean;
   crtFilter: boolean;
@@ -200,13 +201,17 @@ interface AsteroidsCanvasProps {
   onHullPowerUpdate?: (hull: number, maxHull: number) => void;
   onActivePowerupsUpdate: (powerups: any) => void;
   onHudProximityUpdate?: (isNear: boolean) => void;
-  onGameOver: (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number) => void;
+  onGameOver: (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => void;
   onStatsRecord: (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number) => void;
   onUnlockAchievement: (id: string) => void;
 }
 
 export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
+  // Note: Fullscreen integration logic (Browser Fullscreen API toggle)
+  // is managed at the App.tsx root and passed down to HUD/StartScreen
+  // to avoid re-rendering and stealing focus from this canvas component.
   gameMode,
+  initialWave,
   controlScheme,
   isPaused,
   crtFilter,
@@ -227,6 +232,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isInitializedRef = useRef(false);
   const isNearHudRef = useRef(false);
+  const bossEncounteredRef = useRef(false);
   const controlsHintTimerRef = useRef(360); // 6 seconds on screen controls guide
   const empRechargeTimerRef = useRef(3600); // 60 seconds auto recharge timer for EMP bomb
 
@@ -267,7 +273,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   const gameStateRef = useRef({
     score: 0,
     nextExtraLifeScore: 50000,
-    wave: 1,
+    wave: initialWave || (gameMode === 'boss_rush' ? 5 : 1),
     lives: gameMode === 'zen' ? 99 : 3,
     empCount: 1,
     hyperspaceCooldown: 0,
@@ -287,7 +293,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     shotsHit: 0,
     asteroidsDestroyed: 0,
     ufosDestroyed: 0,
-    empUsed: 0
+    empUsed: 0,
+    bossDamageDealt: 0,
+    consecutiveHits: 0
   });
 
   // Power-up duration timers (in frames)
@@ -671,6 +679,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       } else if (state.comboCount === 10) {
         soundEngine.playSound('golden');
         if (ship && ship.alive) addFloatingText(ship.x, ship.y - 45, '⚡ 3x SUPER COMBO!', '#ffd700', 24);
+        callbacksRef.current.onUnlockAchievement('sharpshooter');
       } else if (state.comboCount === 15) {
         soundEngine.playSound('golden');
         if (ship && ship.alive) addFloatingText(ship.x, ship.y - 45, '💥 4x MEGA COMBO!', '#ff00ff', 26);
@@ -710,6 +719,19 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       state.nextExtraLifeScore += 50000;
     }
   }, [triggerBigBanner]);
+
+  const recordShotHit = useCallback(() => {
+    const state = gameStateRef.current;
+    state.shotsHit++;
+    state.consecutiveHits++;
+    if (state.consecutiveHits > 0 && state.consecutiveHits % 10 === 0) {
+      addScore(100, true);
+      const ship = shipRef.current;
+      if (ship && ship.alive) {
+        addFloatingText(ship.x, ship.y - 45, '🎯 SHARPSHOOTER +100', '#ffd700', 17);
+      }
+    }
+  }, [addScore, addFloatingText]);
 
   // Generate Offscreen Canvas Buffer for TRON Polyhedral Light Construct Asteroids (60 FPS Performance Optimization)
   const generateAsteroidOffscreenCanvas = (a: Asteroid, isHit = false): HTMLCanvasElement => {
@@ -1155,18 +1177,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       ship.invincibleTimer = Math.max(ship.invincibleTimer, 210);
     }
 
-    // Spawn Ionizing Nebula every 2 or 3 waves (starting wave 2)
-    if (waveNum >= 2 && (waveNum % 2 === 0 || waveNum % 3 === 0)) {
-      nebulasRef.current.push(createIonizingNebula());
-      triggerBigBanner(
-        '⚡ IONIZING NEBULA DETECTED! ⚡',
-        'EMP HAZARD FIELD AHEAD • HUD & ABILITIES WILL BE SEVERELY CRIPPLED',
-        '#ff00ff',
-        'rgba(255, 0, 255, 0.9)',
-        130
-      );
-    }
-
     // BOSS WAVE MECHANIC: Triggers every 5 waves (Wave 5, 10, 15...)
     if (waveNum % 5 === 0) {
       asteroidsRef.current = [];
@@ -1175,99 +1185,252 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
       const w = canvasRef.current?.width || window.innerWidth;
       const h = canvasRef.current?.height || window.innerHeight;
-      // Massive HP Scaling: base 1800 HP scaling + 800 per wave 5 increment (30x+ standard large asteroid)
-      const bossHp = 1800 + Math.floor(waveNum / 5) * 800;
+      
+      const isTriadProtocol = waveNum % 15 === 0;
+      const isCoreSeverance = !isTriadProtocol && waveNum % 10 === 0;
+      const isDreadnought = !isTriadProtocol && !isCoreSeverance;
 
-      const boss: UFO = {
-        id: 'boss-' + Math.random(),
-        x: w / 2,
-        y: 110,
-        vx: 1.8,
-        vy: 0,
-        radius: 70,
-        speed: 1.8,
-        shootTimer: 0,
-        type: 'dreadnought',
-        health: bossHp,
-        maxHealth: bossHp,
-        angle: 0,
-        shieldAngle: 0,
-        isBoss: true,
-        bossPhase: 1,
-        chargeTimer: 0,
-        behaviorTimer: 0,
-        gridSweepTelegraph: 0,
-        gridSweepFiring: 0,
-        gridSweepAngle: Math.PI / 2,
-        laserChargeProgress: 0,
-        laserFiringTimer: 0,
-        laserTargetX: w / 2,
-        laserTargetY: h,
-        pulseTimer: 0
-      };
+      // Safe spawn: center horizontally, upper part vertically
+      const safeX = w / 2;
 
-      ufosRef.current = [boss];
       soundEngine.playUfoAlarm();
 
-      triggerBigBanner(
-        '⚠️ BOSS ENCOUNTER DETECTED ⚠️',
-        `DREADNOUGHT MOTHERSHIP MK-${Math.floor(waveNum / 5)} INBOUND • PREPARE FOR COMBAT`,
-        '#ff0055',
-        'rgba(255, 0, 85, 0.95)',
-        150
-      );
+      if (isTriadProtocol) {
+         const cx = safeX;
+         const cy = Math.max(h * 0.35, 250);
+         const triadRadius = 220; // distance from center of formation
+         const coreHp = 2000 + Math.floor(waveNum / 15) * 800;
+         
+         for (let i = 0; i < 3; i++) {
+             ufosRef.current.push({
+                 id: 'boss-triad-' + i,
+                 x: cx + Math.cos(i * (Math.PI*2/3) - Math.PI/2) * triadRadius,
+                 y: cy + Math.sin(i * (Math.PI*2/3) - Math.PI/2) * triadRadius,
+                 vx: 0,
+                 vy: 0,
+                 radius: 55,
+                 speed: 1.5,
+                 shootTimer: i * 40,
+                 type: 'triad_core',
+                 health: coreHp,
+                 maxHealth: coreHp,
+                 angle: i * (Math.PI*2/3), // Used for formation positioning
+                 shieldAngle: 0, // Used to track linking status (0 = linked to next, etc)
+                 isBoss: true, // Mark all as boss to share health bar (logic will aggregate)
+                 bossPhase: 1,
+                 bossState: 'active',
+                 behaviorTimer: 0,
+                 pulseTimer: 0,
+                 chargeTimer: 0
+             });
+         }
+         
+         triggerBigBanner(
+            '⚠️ EXTREME THREAT DETECTED ⚠️',
+            `TRIAD PROTOCOL MK-${Math.floor(waveNum / 15)} INBOUND • SEVER THE LINKS TO WEAKEN`,
+            '#00ffff',
+            'rgba(0, 255, 255, 0.95)',
+            200
+         );
+      } else {
+         const bossHp = isCoreSeverance ? 2500 + Math.floor(waveNum / 10) * 800 : 1500 + Math.floor(waveNum / 5) * 500;
+         
+         const boss: UFO = {
+            id: 'boss-' + Math.random(),
+            x: safeX + (Math.random() - 0.5) * 60,
+            y: isCoreSeverance ? h * 0.3 : 130, // Safely in the upper part of the screen
+            vx: isCoreSeverance ? 1.0 : 1.8,
+            vy: 0,
+            radius: isCoreSeverance ? 90 : 110,
+            speed: isCoreSeverance ? 1.0 : 1.8,
+            shootTimer: 0,
+            type: isCoreSeverance ? 'core_severance' : 'dreadnought',
+            health: bossHp,
+            maxHealth: bossHp,
+            angle: 0,
+            shieldAngle: 0,
+            isBoss: true,
+            bossPhase: 1,
+            bossState: 'burst', // Start moving immediately
+            bossStateTimer: 180,
+            chargeTimer: 0,
+            behaviorTimer: 0,
+            gridSweepTelegraph: 0,
+            gridSweepFiring: 0,
+            gridSweepAngle: Math.PI / 2,
+            laserChargeProgress: 0,
+            laserFiringTimer: 0,
+            laserTargetX: w / 2,
+            laserTargetY: h,
+            pulseTimer: 0
+         };
+
+         ufosRef.current = [boss];
+         
+         if (isCoreSeverance) {
+            // Spawn 3 orbiting shield nodes
+            for(let i=0; i<3; i++) {
+               ufosRef.current.push({
+                  id: 'node-' + Math.random(),
+                  x: boss.x,
+                  y: boss.y,
+                  vx: 0,
+                  vy: 0,
+                  radius: 35,
+                  speed: 0,
+                  shootTimer: 0,
+                  type: 'shield_node',
+                  health: 600 + Math.floor(waveNum / 10) * 200,
+                  maxHealth: 600 + Math.floor(waveNum / 10) * 200,
+                  angle: 0,
+                  orbitAngle: (Math.PI * 2 / 3) * i,
+                  orbitRadius: 220,
+                  isBoss: false,
+               });
+            }
+         }
+
+         if (isCoreSeverance) {
+            triggerBigBanner(
+               '⚠️ CRITICAL THREAT DETECTED ⚠️',
+               'CORE SEVERANCE MAINFRAME INBOUND • DESTROY SHIELD NODES FIRST!',
+               '#A371F7',
+               'rgba(163, 113, 247, 0.95)',
+               200
+            );
+         } else {
+            triggerBigBanner(
+               '⚠️ BOSS ENCOUNTER DETECTED ⚠️',
+               bossEncounteredRef.current ? `DREADNOUGHT MOTHERSHIP MK-${Math.floor(waveNum / 5)} INBOUND • PREPARE FOR COMBAT` : 'SHOOT THE ROTATING SHIELD GAP! • OVERHEAT = 3X DAMAGE!',
+               bossEncounteredRef.current ? '#ff0055' : '#00ffff',
+               bossEncounteredRef.current ? 'rgba(255, 0, 85, 0.95)' : 'rgba(0, 255, 255, 0.95)',
+               bossEncounteredRef.current ? 150 : 260
+            );
+         }
+      }
+      bossEncounteredRef.current = true;
       return;
     }
 
-    for (let i = 0; i < count; i++) {
-      const r = Math.random();
-      if (r < 0.35) list.push(spawnSafeAsteroid('ore'));
-      else if (r < 0.65) list.push(spawnSafeAsteroid('molten'));
-      else if (r < 0.85) list.push(spawnSafeAsteroid('volatile'));
-      else list.push(spawnSafeAsteroid('normal'));
-    }
-
-    // Special powerup asteroids
-    if (Math.random() < 0.7) list.push(spawnSafeAsteroid('triple'));
-    if (Math.random() < 0.6) list.push(spawnSafeAsteroid('shield'));
-    if (Math.random() < 0.5) list.push(spawnSafeAsteroid('explosive'));
-    if (Math.random() < 0.45) list.push(spawnSafeAsteroid('crystal'));
-
-    // GUARANTEED Special Hazard Asteroid Types from Wave 1!
-    const hazardTypes: AsteroidType[] = ['magma', 'cryo', 'magnetic', 'hive', 'phantom'];
-    
+    // Gradual progression across Waves 1 to 4
     if (waveNum === 1) {
-      list.push(spawnSafeAsteroid('magma'));
-      list.push(spawnSafeAsteroid('cryo'));
-      list.push(spawnSafeAsteroid('magnetic'));
+      // Wave 1: Basic asteroids only, no hazards, no powerups, no planetoids
+      for (let i = 0; i < count; i++) {
+        list.push(spawnSafeAsteroid('normal'));
+      }
+    } else if (waveNum === 2) {
+      // Wave 2: Introduce first special asteroid / simple power-up (Shield)
+      for (let i = 0; i < count; i++) {
+        const r = Math.random();
+        list.push(spawnSafeAsteroid(r < 0.5 ? 'ore' : 'molten'));
+      }
+      if (Math.random() < 0.8) list.push(spawnSafeAsteroid('shield'));
+    } else if (waveNum === 3) {
+      // Wave 3: Introduce UFO Scouts (via loop check) + Triple Shot powerup + mixed asteroids
+      for (let i = 0; i < count; i++) {
+        const r = Math.random();
+        list.push(spawnSafeAsteroid(r < 0.4 ? 'ore' : r < 0.7 ? 'molten' : 'volatile'));
+      }
+      if (Math.random() < 0.7) list.push(spawnSafeAsteroid('triple'));
+    } else if (waveNum === 4) {
+      // Wave 4: Introduce hazard (Ionizing Nebula) + explosive powerup + Magma asteroids
+      nebulasRef.current.push(createIonizingNebula());
+      triggerBigBanner(
+        '⚡ IONIZING NEBULA DETECTED! ⚡',
+        'EMP HAZARD FIELD AHEAD • HUD & ABILITIES WILL BE SEVERELY CRIPPLED',
+        '#ff00ff',
+        'rgba(255, 0, 255, 0.9)',
+        130
+      );
+      for (let i = 0; i < count; i++) {
+        const r = Math.random();
+        list.push(spawnSafeAsteroid(r < 0.3 ? 'ore' : r < 0.6 ? 'molten' : 'magma'));
+      }
+      if (Math.random() < 0.7) list.push(spawnSafeAsteroid('explosive'));
     } else {
+      // Waves 6+ (Wave 5 is boss)
+      for (let i = 0; i < count; i++) {
+        const r = Math.random();
+        if (r < 0.35) list.push(spawnSafeAsteroid('ore'));
+        else if (r < 0.65) list.push(spawnSafeAsteroid('molten'));
+        else if (r < 0.85) list.push(spawnSafeAsteroid('volatile'));
+        else list.push(spawnSafeAsteroid('normal'));
+      }
+
+      // Special powerup asteroids
+      if (Math.random() < 0.7) list.push(spawnSafeAsteroid('triple'));
+      if (Math.random() < 0.6) list.push(spawnSafeAsteroid('shield'));
+      if (Math.random() < 0.5) list.push(spawnSafeAsteroid('explosive'));
+      if (Math.random() < 0.45) list.push(spawnSafeAsteroid('crystal'));
+
+      const hazardTypes: AsteroidType[] = ['magma', 'cryo', 'magnetic', 'hive', 'phantom'];
       const hazardCount = Math.min(5, 2 + Math.floor(waveNum * 0.8));
       const shuffledHazards = [...hazardTypes].sort(() => Math.random() - 0.5);
       for (let h = 0; h < hazardCount; h++) {
         list.push(spawnSafeAsteroid(shuffledHazards[h % shuffledHazards.length]));
       }
-    }
 
-    // Planetary Asteroid System (Big Planetoid + Orbiting Moons)
-    if (waveNum >= 2 || Math.random() < 0.5) {
-      const pSystem = spawnPlanetoidSystem();
-      list.push(...pSystem);
-    }
+      if (waveNum >= 2 || Math.random() < 0.5) {
+        const pSystem = spawnPlanetoidSystem();
+        list.push(...pSystem);
+      }
 
-    // Additional chance for extra hazard spawns
-    if (Math.random() < 0.5) list.push(spawnSafeAsteroid('hive'));
-    if (Math.random() < 0.4) list.push(spawnSafeAsteroid('phantom'));
+      if (Math.random() < 0.5) list.push(spawnSafeAsteroid('hive'));
+      if (Math.random() < 0.4) list.push(spawnSafeAsteroid('phantom'));
+    }
 
     asteroidsRef.current = list;
 
-    // Rare chance for early black hole, otherwise mid-game loop handles periodic spawns
-    if (waveNum >= 3 && Math.random() < 0.35) {
-      setTimeout(() => spawnBlackHole(), 6000);
-    }
+    // TACTICAL COMBINATION SYSTEM (Wave 6+): Intentional hazard & enemy synergy
+    if (waveNum >= 6) {
+      const comboType = waveNum % 5;
+      if (comboType === 1) {
+        // Combination 1: Black Hole Singularity + Void Swarmers
+        setTimeout(() => spawnBlackHole(), 3500);
+        setTimeout(() => spawnUfoEnemy('swarmer'), 5500);
+        setTimeout(() => {
+          triggerBigBanner('⚠️ TACTICAL PRESSURE: SINGULARITY & SWARMERS', 'GRAVITATIONAL PULL COMBINED WITH VOID SWARM ATTACK', '#a855f7', 'rgba(168, 85, 247, 0.9)', 120);
+        }, 1000);
+      } else if (comboType === 2) {
+        // Combination 2: Ionizing Nebula + Stalker Hunter Interceptors
+        setTimeout(() => spawnUfoEnemy('hunter'), 4000);
+        setTimeout(() => spawnUfoEnemy('scout'), 6000);
+        setTimeout(() => {
+          triggerBigBanner('⚠️ TACTICAL PRESSURE: EMP NEBULA & HUNTERS', 'HUD DISRUPTED WHILE AGGRESSIVE STALKERS ENGAGE', '#ff00ff', 'rgba(255, 0, 255, 0.9)', 120);
+        }, 1000);
+      } else if (comboType === 3) {
+        // Combination 3: Binary Plasma Core + Mothership artillery
+        setTimeout(() => spawnBinaryPlasmaCore(), 3000);
+        setTimeout(() => spawnUfoEnemy('mothership'), 5000);
+        setTimeout(() => {
+          triggerBigBanner('⚠️ TACTICAL PRESSURE: PLASMA CORES & MOTHERSHIP', 'DUAL STELLAR CORES SURROUNDED BY HEAVY ALIEN ARTILLERY', '#38bdf8', 'rgba(56, 189, 248, 0.9)', 120);
+        }, 1000);
+      } else if (comboType === 4) {
+        // Combination 4: Multi-UFO Priority Threat (Hunter + Swarmers)
+        setTimeout(() => spawnUfoEnemy('hunter'), 3000);
+        setTimeout(() => spawnUfoEnemy('swarmer'), 5000);
+        setTimeout(() => {
+          triggerBigBanner('⚠️ TACTICAL PRESSURE: DUAL ALIEN ASSAULT', 'PRIORITIZE TARGETS BETWEEN STALKERS AND SWARM PACKS', '#ff4444', 'rgba(255, 68, 68, 0.9)', 120);
+        }, 1000);
+      } else {
+        // Combination 5: Heavy Hazard Zone (Black Hole + Plasma Core + Scout)
+        setTimeout(() => spawnBlackHole(), 3000);
+        setTimeout(() => spawnBinaryPlasmaCore(), 6000);
+        setTimeout(() => spawnUfoEnemy('scout'), 8000);
+        setTimeout(() => {
+          triggerBigBanner('⚠️ HAZARD SECTOR: ANOMALY CLUSTER', 'MULTIPLE SINGULARITIES & PLASMA HAZARDS ACTIVE', '#e11d48', 'rgba(225, 29, 72, 0.9)', 120);
+        }, 1000);
+      }
+    } else {
+      // Rare chance for early black hole on waves 3-5
+      if (waveNum >= 3 && Math.random() < 0.35) {
+        setTimeout(() => spawnBlackHole(), 6000);
+      }
 
-    // High energy Binary Plasma Core hazard spawn (Wave 2+)
-    if (waveNum >= 2 && Math.random() < 0.45) {
-      setTimeout(() => spawnBinaryPlasmaCore(), 4000);
+      // High energy Binary Plasma Core hazard spawn (Wave 2+)
+      if (waveNum >= 2 && Math.random() < 0.45) {
+        setTimeout(() => spawnBinaryPlasmaCore(), 4000);
+      }
     }
 
     triggerBigBanner(
@@ -1287,7 +1450,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
     const ship = shipRef.current;
     ship.x = w / 2;
-    ship.y = h / 2;
+    ship.y = h * 0.7; // Lower half of the screen
     ship.thrust = { x: 0, y: 0 };
     ship.angle = 0;
     ship.alive = true;
@@ -1314,7 +1477,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       gameStateRef.current.shakeIntensity = 3;
     }
 
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 15; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 2 + Math.random() * 5.5;
       particlesRef.current.push({
@@ -1338,7 +1501,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     }
     addShockwave(x, y, 140, colorOverride || '#ff4400');
 
-    for (let i = 0; i < 180; i++) {
+    for (let i = 0; i < 45; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 3 + Math.random() * 16;
       const colorRoll = Math.random();
@@ -1382,15 +1545,30 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     addScore(points);
     gameStateRef.current.ufosDestroyed++;
 
+    const ship = shipRef.current;
+    if (ship && ship.alive && !ufo.isBoss) {
+      const dist = Math.hypot(ufo.x - ship.x, ufo.y - ship.y);
+      if (dist < 180) {
+        const closeBonus = 200;
+        addScore(closeBonus, true);
+        addFloatingText(ufo.x, ufo.y - 30, `CLOSE KILL +${closeBonus}`, '#00ffcc', 17);
+      }
+    }
+
     createBigExplosion(ufo.x, ufo.y);
 
-    if (ufo.isBoss) {
+    const isFinalTriad = ufo.type === 'triad_core' && ufosRef.current.filter(u => u.type === 'triad_core').length <= 1;
+    const isBossDeath = (ufo.isBoss && ufo.type !== 'triad_core') || isFinalTriad;
+
+    if (isBossDeath) {
       soundEngine.playSound('heavy_explode');
       createBigExplosion(ufo.x, ufo.y, '#ff0055');
       createBigExplosion(ufo.x - 50, ufo.y + 20, '#a855f7');
       createBigExplosion(ufo.x + 50, ufo.y - 20, '#00ffff');
       addShockwave(ufo.x, ufo.y, 400, '#ff0055');
       addShockwave(ufo.x, ufo.y, 280, '#00ffff');
+      
+      callbacksRef.current.onUnlockAchievement('boss_slayer');
 
       // Drop MULTIPLE magnetic bonus crystals around boss coordinates
       const drops: Collectible['type'][] = ['golden', 'shield', 'triple', 'emp', 'laser', 'drone', 'magnet', 'repulsor', 'nuke'];
@@ -1415,7 +1593,24 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
       callbacksRef.current.onUnlockAchievement('boss_slayer');
     } else {
-      if (ufo.type === 'dreadnought') {
+      if (ufo.isMinion) {
+        const minionDrops: Collectible['type'][] = ['shield', 'triple', 'laser', 'emp', 'timewarp', 'repulsor', 'drone'];
+        const picked = minionDrops[Math.floor(Math.random() * minionDrops.length)];
+        spawnCollectible(ufo.x, ufo.y, picked);
+        addFloatingText(ufo.x, ufo.y - 20, '🎁 MINION POWERUP DROPPED!', '#38bdf8', 16);
+      } else if (ufo.type === 'supply') {
+        const drops: Collectible['type'][] = ['golden', 'nuke', 'drone', 'timewarp'];
+        const picked = drops[Math.floor(Math.random() * drops.length)];
+        spawnCollectible(ufo.x, ufo.y, picked);
+        addScore(500);
+        addFloatingText(ufo.x, ufo.y - 25, '+500 SUPPLY DRONE DESTROYED!', '#ffd700', 20);
+        addFloatingText(ufo.x, ufo.y + 12, 'EXOTIC SUPPLY CACHE DROPPED!', '#38bdf8', 16);
+      } else if (ufo.type === 'shield_node') {
+        const dropTypes: Collectible['type'][] = ['shield', 'triple', 'laser', 'emp', 'timewarp'];
+        spawnCollectible(ufo.x, ufo.y, dropTypes[Math.floor(Math.random() * dropTypes.length)]);
+        addFloatingText(ufo.x, ufo.y - 20, `+${points} SHIELD NODE DESTROYED!`, '#A371F7', 18);
+        addFloatingText(ufo.x, ufo.y + 12, 'NODE POWERUP DROPPED!', '#38bdf8', 14);
+      } else if (ufo.type === 'dreadnought') {
         const drop = Math.random() < 0.5 ? 'nuke' : 'timewarp';
         spawnCollectible(ufo.x, ufo.y, drop);
         addFloatingText(ufo.x, ufo.y - 25, `+${points} DREADNOUGHT DESTROYED!`, '#e11d48', 24);
@@ -1431,6 +1626,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       } else if (ufo.type === 'swarmer') {
         if (Math.random() < 0.4) spawnCollectible(ufo.x, ufo.y, 'triple');
         addFloatingText(ufo.x, ufo.y - 18, `+${points} SWARMER CLEARED!`, '#38bdf8', 16);
+      } else if (ufo.type === 'triad_core') {
+        // Handled in damage logic, just points here
+        addFloatingText(ufo.x, ufo.y + 20, `+${points} CORE SECURED!`, '#00ffff', 18);
       } else {
         if (Math.random() < 0.6) spawnCollectible(ufo.x, ufo.y, 'golden');
         addFloatingText(ufo.x, ufo.y - 20, `+${points} SCOUT DESTROYED!`, '#38bdf8', 18);
@@ -1454,6 +1652,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     const ship = shipRef.current;
     const a = asteroidsRef.current[index];
     if (!a) return;
+
+    if (ship && ship.alive) {
+      const dist = Math.hypot(a.x - ship.x, a.y - ship.y);
+      if (dist < 140) {
+        const closeBonus = Math.round(150 * (1 - dist / 140)) + 50;
+        addScore(closeBonus, true);
+        addFloatingText(a.x, a.y - 25, `CLOSE KILL +${closeBonus}`, '#38bdf8', 16);
+      }
+    }
 
     createSmallExplosion(a.x, a.y);
 
@@ -1486,6 +1693,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     } else if (a.type === 'phantom') {
       spawnCollectible(a.x, a.y, 'golden');
       addFloatingText(a.x, a.y, '🌟 HYPER STAR DROPPED!', '#e9d5ff', 16);
+    } else if (a.type === 'molten') {
+      spawnCollectible(a.x, a.y, 'triple');
+      addFloatingText(a.x, a.y, '🔥 MOLTEN TRIPLE DROPPED!', '#ff5500', 15);
+    } else if (a.type === 'ore') {
+      spawnCollectible(a.x, a.y, 'shield');
+      addFloatingText(a.x, a.y, '🛡️ ORE SHIELD DROPPED!', '#ffaa00', 15);
+    } else if (a.type === 'volatile') {
+      spawnCollectible(a.x, a.y, 'emp');
+      addFloatingText(a.x, a.y, '☣️ VOLATILE EMP DROPPED!', '#39ff14', 15);
     } else if (a.radius > 25 && Math.random() < 0.22) {
       // 22% chance for normal large asteroids to drop random powerup
       const pTypes: Collectible['type'][] = ['triple', 'shield', 'emp', 'magnet'];
@@ -1989,7 +2205,11 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       mothership: '⚠️ UFO MOTHERSHIP INBOUND',
       hunter: '⚠️ STALKER HUNTER FIGHTER INBOUND',
       swarmer: '⚠️ VOID SWARMERS APPROACHING',
-      dreadnought: '🚨 ALIEN DREADNOUGHT WARSHIP INBOUND'
+      dreadnought: '🚨 ALIEN DREADNOUGHT WARSHIP INBOUND',
+      supply: '🌟 EXOTIC SUPPLY DRONE DETECTED',
+      mine: '💣 PROXIMITY MINE DETECTED',
+      core_severance: '🚨 CRITICAL MAINFRAME ENCOUNTER DETECTED',
+      shield_node: '🛡️ SHIELD NODE ONLINE'
     };
 
     addFloatingText(w / 2, 70 + (ufosRef.current.length * 22), typeNames[type], '#ff4444', 16);
@@ -2017,6 +2237,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     }
     gameStateRef.current.comboCount = 0;
     gameStateRef.current.comboTimer = 0;
+    gameStateRef.current.consecutiveHits = 0;
 
     // 2-Hit Hull Damage system: first hit damages hull by 50%
     if (ship.hullPower > 40) {
@@ -2063,7 +2284,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         gameStateRef.current.score,
         gameStateRef.current.wave,
         gameStateRef.current.asteroidsDestroyed,
-        acc
+        acc,
+        gameStateRef.current.maxCombo,
+        gameStateRef.current.ufosDestroyed,
+        gameStateRef.current.bossDamageDealt
       );
     } else {
       setTimeout(() => {
@@ -2181,7 +2405,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       // Ensure ship is centered properly on load/resize
       if (!isInitializedRef.current || shipRef.current.x < 100 || shipRef.current.y < 100) {
         shipRef.current.x = w / 2;
-        shipRef.current.y = h / 2;
+        shipRef.current.y = h * 0.7;
       }
     };
     handleResize();
@@ -2244,6 +2468,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             addFloatingText(ship.x, ship.y - 35, '💥 COMBO EXPIRED', '#ff4444', 16);
           }
           state.comboCount = 0;
+          state.consecutiveHits = 0;
         }
       }
 
@@ -2564,7 +2789,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(a.x - b.x, a.y - b.y);
 
             if (dist < a.radius) {
-              state.shotsHit++;
+              recordShotHit();
               if (!b.isLaser) {
                 bulletsRef.current.splice(j, 1);
               }
@@ -3017,7 +3242,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               const dmg = b.isLaser ? 3 : 1;
               neb.health -= dmg;
               neb.damageFlash = 10; // Flash white on damage!
-              state.shotsHit++;
+              recordShotHit();
 
               createSmallExplosion(b.x, b.y, '#ff00ff');
               soundEngine.playSound('shield_hit');
@@ -3070,13 +3295,39 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           }
         }
 
+        const hasActiveBoss = ufosRef.current.some((u) => u.isBoss);
+
         // 4.6. MID-GAME PERIODIC BLACK HOLE SINGULARITY SPAWN
-        if (state.wave >= 2 && blackHolesRef.current.length < 1) {
+        if (!hasActiveBoss && state.wave >= 2 && blackHolesRef.current.length < 1) {
           blackHoleSpawnTimerRef.current++;
           if (blackHoleSpawnTimerRef.current > 2200 && Math.random() < 0.003) {
             blackHoleSpawnTimerRef.current = 0;
             spawnBlackHole();
           }
+        }
+
+        // Rare Supply Drone spawn (Wave 2+, rare)
+        if (!hasActiveBoss && state.wave >= 2 && Math.random() < 0.0004) {
+          const w = canvasRef.current?.width || window.innerWidth;
+          const h = canvasRef.current?.height || window.innerHeight;
+          const fromLeft = Math.random() < 0.5;
+          const supplyDrone: UFO = {
+            id: 'supply-' + Math.random(),
+            x: fromLeft ? -50 : w + 50,
+            y: 100 + Math.random() * (h - 200),
+            vx: fromLeft ? 3.5 : -3.5,
+            vy: (Math.random() - 0.5) * 1.0,
+            radius: 18,
+            speed: 3.5,
+            shootTimer: 0,
+            type: 'supply',
+            health: 2,
+            maxHealth: 2,
+            angle: 0
+          };
+          ufosRef.current.push(supplyDrone);
+          soundEngine.playSound('golden');
+          addFloatingText(supplyDrone.x, supplyDrone.y - 25, '🌟 SUPPLY DRONE DETECTED!', '#ffd700', 18);
         }
 
         // 4.7. BINARY PLASMA CORE PHYSICS & COLLISION HANDLING
@@ -3185,7 +3436,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 const dmg = b.isLaser ? 22 : 10;
                 c.health -= dmg;
                 c.damageFlash = 8;
-                state.shotsHit++;
+                recordShotHit();
                 createSmallExplosion(b.x, b.y, c.color);
                 soundEngine.playSound('shield_hit');
 
@@ -3276,7 +3527,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         }
 
         // Mid-game periodic spawn for Binary Plasma Core
-        if (state.wave >= 2 && plasmaCoresRef.current.length < 1) {
+        if (!hasActiveBoss && state.wave >= 2 && plasmaCoresRef.current.length < 1) {
           plasmaCoreSpawnTimerRef.current++;
           if (plasmaCoreSpawnTimerRef.current > 1800 && Math.random() < 0.003) {
             plasmaCoreSpawnTimerRef.current = 0;
@@ -3286,11 +3537,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
         // 5. UFO ENEMY AI & BULLETS
         ufoSpawnTimerRef.current++;
-        const hasActiveBoss = ufosRef.current.some((u) => u.isBoss);
         const maxSimultaneousUfos = state.wave >= 5 ? 3 : state.wave >= 2 ? 2 : 1;
         const ufoSpawnCooldown = Math.max(500, 1200 - (state.wave - 1) * 100);
         const ufoSpawnProb = Math.min(0.025, 0.008 + (state.wave - 1) * 0.003);
-        if (!hasActiveBoss && ufosRef.current.length < maxSimultaneousUfos && ufoSpawnTimerRef.current > ufoSpawnCooldown && Math.random() < ufoSpawnProb) {
+        if (!hasActiveBoss && state.wave >= 3 && ufosRef.current.length < maxSimultaneousUfos && ufoSpawnTimerRef.current > ufoSpawnCooldown && Math.random() < ufoSpawnProb) {
           spawnUfoEnemy();
           ufoSpawnTimerRef.current = 0;
         }
@@ -3299,10 +3549,199 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           const ufo = ufosRef.current[ui];
           if (!ufo) continue;
 
-          // BOSS MECHANICS & AI (Dreadnought / Mothership Boss)
+          // BOSS MECHANICS & AI
           if (ufo.isBoss) {
-            // Update directional rotating shield angle
-            const shieldSpeed = ufo.bossPhase === 2 ? 0.022 : 0.014;
+            // Minion Support System: Periodically spawn 1-2 weak minions every 9-14 seconds (540-840 frames)
+            ufo.minionSpawnTimer = (ufo.minionSpawnTimer || 0) + timeFactor;
+            if (!ufo.nextMinionInterval) ufo.nextMinionInterval = 540 + Math.random() * 300;
+            if (ufo.minionSpawnTimer >= ufo.nextMinionInterval) {
+              ufo.minionSpawnTimer = 0;
+              ufo.nextMinionInterval = 540 + Math.random() * 300;
+              const minionCount = ufo.bossPhase === 2 ? 2 : 1;
+              for (let m = 0; m < minionCount; m++) {
+                const mType = Math.random() < 0.6 ? 'scout' : 'swarmer';
+                const spawnX = ufo.x + (m === 0 ? -120 : 120) + (Math.random() - 0.5) * 50;
+                const spawnY = ufo.y + 30 + Math.random() * 50;
+                const minion: UFO = {
+                  id: 'minion-' + Math.random(),
+                  x: spawnX,
+                  y: spawnY,
+                  vx: (Math.random() - 0.5) * 2.5,
+                  vy: (Math.random() - 0.5) * 1.5,
+                  radius: mType === 'swarmer' ? 14 : 20,
+                  speed: 2.2,
+                  shootTimer: 0,
+                  type: mType,
+                  health: 1,
+                  maxHealth: 1,
+                  angle: 0,
+                  isMinion: true
+                };
+                ufosRef.current.push(minion);
+              }
+              soundEngine.playSound('ufo');
+              addFloatingText(ufo.x, ufo.y - 45, '🛸 BOSS DEPLOYED MINIONS!', '#ff0055', 18);
+            }
+
+            // Overheat Reward: when boss enters cooldown state, automatically drop 1 power-up near its position
+            if (ufo.bossState === 'cooldown') {
+              if (!ufo.hasDroppedOverheatPowerup) {
+                ufo.hasDroppedOverheatPowerup = true;
+                const dropTypes: Collectible['type'][] = ['shield', 'triple', 'laser', 'emp', 'timewarp', 'repulsor', 'drone', 'golden'];
+                const picked = dropTypes[Math.floor(Math.random() * dropTypes.length)];
+                spawnCollectible(ufo.x, ufo.y, picked);
+                addFloatingText(ufo.x, ufo.y - 30, '🎁 OVERHEAT POWERUP CACHE DROPPED!', '#ffd700', 18);
+                soundEngine.playSound('golden');
+              }
+            } else {
+              ufo.hasDroppedOverheatPowerup = false;
+            }
+
+            if (ufo.type === 'triad_core') {
+               const triadCores = ufosRef.current.filter(u => u.type === 'triad_core');
+               const isLinked = triadCores.length > 1;
+               const isBerserk = triadCores.length === 1;
+
+               // Movement
+               ufo.behaviorTimer = (ufo.behaviorTimer || 0) + timeFactor;
+               const bt = ufo.behaviorTimer;
+               
+               const w = canvasRef.current?.width || window.innerWidth;
+               const h = canvasRef.current?.height || window.innerHeight;
+               const sweepX = Math.sin(bt * 0.005) * 300;
+               const sweepY = Math.cos(bt * 0.003) * 100;
+               const cx = w / 2 + sweepX;
+               const cy = Math.max(h * 0.35, 250) + sweepY;
+
+               if (!isBerserk) {
+                  // Spin in formation
+                  ufo.angle += 0.01 * timeFactor;
+                  const triadRadius = triadCores.length === 3 ? 180 : 130;
+                  const targetX = cx + Math.cos(ufo.angle) * triadRadius;
+                  const targetY = cy + Math.sin(ufo.angle) * triadRadius;
+                  ufo.x += (targetX - ufo.x) * 0.05 * timeFactor;
+                  ufo.y += (targetY - ufo.y) * 0.05 * timeFactor;
+               } else {
+                  // Berserk: aggressively follow player, but stay above
+                  if (ship.alive) {
+                     const targetX = ship.x;
+                     const targetY = Math.min(ship.y - 250, h/2);
+                     ufo.x += (targetX - ufo.x) * 0.03 * timeFactor;
+                     ufo.y += (targetY - ufo.y) * 0.03 * timeFactor;
+                  }
+               }
+               
+               // Attack logic
+               ufo.shootTimer += timeFactor;
+               const shootThreshold = isBerserk ? 30 : 70;
+               if (ufo.shootTimer > shootThreshold) {
+                  ufo.shootTimer = 0;
+                  if (ship.alive) {
+                     const angleToShip = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                     if (isBerserk) {
+                        // Spread of 3
+                        for(let a = -0.3; a <= 0.3; a += 0.3) {
+                           ufoBulletsRef.current.push({
+                              x: ufo.x, y: ufo.y,
+                              vx: Math.cos(angleToShip+a) * 7, vy: Math.sin(angleToShip+a) * 7,
+                              angle: angleToShip+a, radius: 6, isLaser: false, color: '#ff0055'
+                           });
+                        }
+                        soundEngine.playSound('laser');
+                     } else {
+                        // Single aimed shot
+                        ufoBulletsRef.current.push({
+                           x: ufo.x, y: ufo.y,
+                           vx: Math.cos(angleToShip) * 5.5, vy: Math.sin(angleToShip) * 5.5,
+                           angle: angleToShip, radius: 6, isLaser: false, color: '#00ffff'
+                        });
+                        if (triadCores[0] && ufo.id === triadCores[0].id) soundEngine.playSound('laser'); // prevent stacked sounds
+                     }
+                  }
+               }
+            }
+            
+            if (ufo.type === 'core_severance') {
+              // Core Severance AI
+              // Find nodes
+              const activeNodes = ufosRef.current.filter(u => u.type === 'shield_node' && u.health > 0);
+              const nodeCount = activeNodes.length;
+
+              // Phase transitions
+              if (nodeCount === 0 && ufo.bossPhase === 1) {
+                ufo.bossPhase = 2;
+                addShockwave(ufo.x, ufo.y, 400, '#A371F7');
+                soundEngine.playSound('heavy_explode');
+                triggerBigBanner(
+                  '⚠️ SHIELD DEFEATED! ⚠️',
+                  'CORE EXPOSED! PANIC MODE ACTIVATED!',
+                  '#A371F7',
+                  'rgba(163, 113, 247, 0.95)',
+                  150
+                );
+              }
+
+              // Update state timer
+              ufo.bossStateTimer -= timeFactor;
+
+              // State transitions
+              if (ufo.bossStateTimer <= 0) {
+                 if (ufo.bossState === 'cooldown') {
+                    ufo.bossState = 'laserCharge';
+                    ufo.bossStateTimer = nodeCount === 0 ? 120 : 180;
+                 } else if (ufo.bossState === 'laserCharge') {
+                    ufo.bossState = 'laserFire';
+                    ufo.bossStateTimer = nodeCount === 0 ? 150 : 100;
+                    // Trigger EMP-like pulse
+                    addShockwave(ufo.x, ufo.y, 350, '#A371F7');
+                 } else if (ufo.bossState === 'laserFire') {
+                    ufo.bossState = 'cooldown';
+                    ufo.bossStateTimer = nodeCount === 0 ? 90 : 180;
+                 } else {
+                    ufo.bossState = 'cooldown';
+                    ufo.bossStateTimer = 180;
+                 }
+              }
+
+              // Attacks based on state
+              if (ufo.bossState === 'laserFire' && ship.alive) {
+                 if (Math.random() < (nodeCount === 0 ? 0.08 : 0.03)) {
+                    // Fire seeking heavy orb
+                    const angle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                    ufoBulletsRef.current.push({
+                        id: 'orb-' + Math.random(),
+                        x: ufo.x,
+                        y: ufo.y,
+                        vx: Math.cos(angle) * (nodeCount === 0 ? 4 : 2.5),
+                        vy: Math.sin(angle) * (nodeCount === 0 ? 4 : 2.5),
+                        life: 300,
+                        maxLife: 300,
+                        size: 8,
+                        color: '#A371F7',
+                        isPlayer: false,
+                        isSeeking: true
+                    });
+                    soundEngine.playSound('laser');
+                 }
+              }
+
+              // Movement
+              ufo.x += ufo.vx * timeFactor;
+              ufo.y = (canvasRef.current?.height || window.innerHeight) / 2 - 100 + Math.sin(Date.now() * 0.001) * 30;
+
+              const w = canvasRef.current?.width || window.innerWidth;
+              const minSafeX = Math.max(ufo.radius + 60, 320); // Keep away from left HUD
+              if (ufo.x < minSafeX) {
+                ufo.x = minSafeX;
+                ufo.vx = Math.abs(ufo.vx);
+              } else if (ufo.x > w - ufo.radius - 60) {
+                ufo.x = w - ufo.radius - 60;
+                ufo.vx = -Math.abs(ufo.vx);
+              }
+
+            } else {
+              // Update directional rotating shield angle
+              const shieldSpeed = ufo.bossPhase === 2 ? 0.022 : 0.014;
             ufo.shieldAngle = ((ufo.shieldAngle || 0) + shieldSpeed * timeFactor) % (Math.PI * 2);
 
             // Initialize state if not set
@@ -3322,11 +3761,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               addFloatingText(ufo.x, ufo.y - 35, '⚠️ PHASE 2 OVERDRIVE AGGRESSIVE MODE!', '#ff0055', 24);
               triggerBigBanner(
                 '⚠️ BOSS ENTERED PHASE 2! ⚠️',
-                'DIRECTIONAL ROTATING SHIELD & GRID SWEEP OVERDRIVE ONLINE',
+                'DIRECTIONAL ROTATING SHIELD & SWARMERS DEPLOYED',
                 '#ff0055',
                 'rgba(255, 0, 85, 0.95)',
                 110
               );
+              // Spawn Swarmers (1-2)
+              spawnUfoEnemy('swarmer');
             }
 
             // Movement handling: Boss moves ONLY in 'burst' state
@@ -3336,8 +3777,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               ufo.y = 120 + Math.sin(Date.now() * 0.0025) * 20;
 
               const w = canvasRef.current?.width || window.innerWidth;
-              if (ufo.x < ufo.radius + 40) {
-                ufo.x = ufo.radius + 40;
+              const minSafeX = Math.max(ufo.radius + 40, 320); // Keep away from left HUD
+              if (ufo.x < minSafeX) {
+                ufo.x = minSafeX;
                 ufo.vx = Math.abs(ufo.vx);
               } else if (ufo.x > w - ufo.radius - 40) {
                 ufo.x = w - ufo.radius - 40;
@@ -3419,6 +3861,16 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               }
             } else if (ufo.bossState === 'laserFire') {
               // State C: Laser Fire (1.5 seconds / 90 frames)
+              
+              // Add slight tracking during fire if phase 2
+              if (ufo.bossPhase === 2 && ship.alive) {
+                 const targetAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                 let diff = targetAngle - (ufo.laserTargetAngle || 0);
+                 while (diff < -Math.PI) diff += Math.PI * 2;
+                 while (diff > Math.PI) diff -= Math.PI * 2;
+                 ufo.laserTargetAngle = (ufo.laserTargetAngle || 0) + diff * 0.012 * timeFactor;
+              }
+
               if (ship.alive) {
                 // Vector laser collision check (straight line)
                 const dx = ship.x - ufo.x;
@@ -3444,20 +3896,25 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
               if (ufo.bossStateTimer <= 0) {
                 ufo.bossState = 'cooldown';
-                ufo.bossStateTimer = 180; // 3 seconds
+                ufo.bossStateTimer = 360; // 6.0 seconds
                 soundEngine.playSound('golden');
                 addShockwave(ufo.x, ufo.y, 220, '#ffffff');
                 addFloatingText(ufo.x, ufo.y - 45, '🔥 SYSTEM: OVERHEATED - VULNERABLE', '#ffffff', 22);
                 triggerBigBanner(
                   '🔥 SYSTEM OVERHEATED! 🔥',
-                  'SHIELD DROPPED • CORE EXPOSED FOR 3 SECONDS • 3X DAMAGE!',
+                  'SHIELD DROPPED • CORE EXPOSED FOR 6.0 SECONDS • 3X DAMAGE!',
                   '#ffffff',
                   'rgba(255, 255, 255, 0.95)',
                   110
                 );
+                
+                // Drop a power-up when entering Overheat!
+                const types: Collectible['type'][] = ['shield', 'triple', 'laser', 'emp', 'timewarp'];
+                const pType = types[Math.floor(Math.random() * types.length)];
+                spawnCollectible(ufo.x, ufo.y + ufo.radius + 20, pType);
               }
             } else if (ufo.bossState === 'cooldown') {
-              // State D: Cooldown / Vulnerability (3 seconds / 180 frames)
+              // State D: Cooldown / Vulnerability (6 seconds / 360 frames)
               if (Math.random() < 0.6) {
                 particlesRef.current.push({
                   x: ufo.x + (Math.random() - 0.5) * ufo.radius * 1.2,
@@ -3473,11 +3930,92 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               }
 
               if (ufo.bossStateTimer <= 0) {
-                ufo.bossState = 'burst';
+                ufo.bossState = Math.random() < 0.5 ? 'burst' : 'mines';
                 ufo.bossStateTimer = 240;
                 addFloatingText(ufo.x, ufo.y - 45, '🛡️ SHIELD RESTORED!', '#ff0055', 20);
                 addShockwave(ufo.x, ufo.y, 250, '#ff0055');
               }
+            } else if (ufo.bossState === 'mines') {
+              // State E: Proximity Mines (4 seconds / 240 frames)
+              ufo.shootTimer++;
+              // Fire a mine every 45 frames
+              if (ufo.shootTimer >= 45 && ship.alive) {
+                ufo.shootTimer = 0;
+                const baseAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                const fireA = baseAngle + (Math.random() - 0.5) * 1.0;
+                
+                ufoBulletsRef.current.push({
+                    x: ufo.x + Math.cos(fireA) * ufo.radius * 0.8,
+                    y: ufo.y + Math.sin(fireA) * ufo.radius * 0.8,
+                    vx: Math.cos(fireA) * 3.5 * timeFactor,
+                    vy: Math.sin(fireA) * 3.5 * timeFactor,
+                    angle: fireA,
+                    speed: 3.5,
+                    life: 600, // live a long time
+                    maxLife: 600,
+                    size: 14,
+                    color: '#ffaa00',
+                    isPlayer: false,
+                    isMine: true
+                });
+                soundEngine.playSound('ufo');
+                addFloatingText(ufo.x, ufo.y - 45, '💣 PROXIMITY MINE DEPLOYED', '#ffaa00', 14);
+              }
+
+              if (ufo.bossStateTimer <= 0) {
+                ufo.bossState = 'laserCharge';
+                ufo.bossStateTimer = 150; // 2.5 seconds
+                ufo.laserTargetAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                addFloatingText(ufo.x, ufo.y - 45, '⚠️ SYSTEM: CHARGING', '#00ffff', 20);
+                soundEngine.playSound('ufo');
+              }
+            }
+            } // Close core_severance else block
+          } else if (ufo.type === 'shield_node') {
+             // Find core severance
+             const core = ufosRef.current.find(u => u.type === 'core_severance' && u.health > 0);
+             if (core) {
+                // Orbit core
+                const nodes = ufosRef.current.filter(u => u.type === 'shield_node' && u.health > 0);
+                const speedMult = nodes.length === 3 ? 1 : nodes.length === 2 ? 1.5 : 2.5;
+                ufo.orbitAngle = (ufo.orbitAngle || 0) + 0.02 * speedMult * timeFactor;
+                ufo.x = core.x + Math.cos(ufo.orbitAngle) * (ufo.orbitRadius || 220);
+                ufo.y = core.y + Math.sin(ufo.orbitAngle) * (ufo.orbitRadius || 220);
+                
+                // Attack logic
+                ufo.shootTimer += timeFactor;
+                if (ufo.shootTimer > (nodes.length === 3 ? 120 : nodes.length === 2 ? 80 : 50) && ship.alive) {
+                   ufo.shootTimer = 0;
+                   if (Math.random() < 0.3) {
+                      const angle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                      ufoBulletsRef.current.push({
+                          id: 'node-beam-' + Math.random(),
+                          x: ufo.x,
+                          y: ufo.y,
+                          vx: Math.cos(angle) * 3,
+                          vy: Math.sin(angle) * 3,
+                          life: 180,
+                          maxLife: 180,
+                          size: 5,
+                          color: '#00ffff',
+                          isPlayer: false,
+                          isSeeking: false
+                      });
+                      soundEngine.playSound('laser');
+                   }
+                }
+             } else {
+                // Self destruct if core is dead
+                ufo.health = 0;
+             }
+          } else if (ufo.type === 'supply') {
+            ufo.x += ufo.vx * timeFactor;
+            ufo.y += ufo.vy * timeFactor;
+            const w = canvasRef.current?.width || window.innerWidth;
+            if (ufo.x < -100 || ufo.x > w + 100) {
+              const idx = ufosRef.current.indexOf(ufo);
+              if (idx !== -1) ufosRef.current.splice(idx, 1);
+              continue;
             }
           } else if (ufo.type === 'hunter') {
             if (ship.alive) {
@@ -3605,6 +4143,24 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 pTimers.golden = 0;
                 ship.hullPower = 0;
                 handlePlayerHit();
+              } else if (ufo.type === 'shield_node') {
+                if (isShielded) {
+                  soundEngine.playSound('shield_hit');
+                  addShockwave(ufo.x, ufo.y, ufo.radius * 2, '#A371F7');
+                  addFloatingText(ufo.x, ufo.y - 30, 'DEFLECTED NODE!', '#A371F7', 18);
+                  
+                  // Gently push ship away
+                  const pushAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                  ship.vx += Math.cos(pushAngle) * 5;
+                  ship.vy += Math.sin(pushAngle) * 5;
+                } else {
+                  handlePlayerHit();
+                  
+                  // Gently push ship away after taking damage
+                  const pushAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                  ship.vx += Math.cos(pushAngle) * 5;
+                  ship.vy += Math.sin(pushAngle) * 5;
+                }
               } else if (isShielded) {
                 soundEngine.playSound('shield_hit');
                 addShockwave(ufo.x, ufo.y, ufo.radius * 2, '#00ffcc');
@@ -3779,48 +4335,93 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(ufo.x - b.x, ufo.y - b.y);
 
             if (ufo.isBoss) {
-              const isOverheated = ufo.bossState === 'cooldown';
-
-              if (isOverheated) {
-                // OVERHEATED VULNERABLE PHASE: SHIELD DROPPED & Core Defense Exposed!
-                const hitRadius = ufo.radius + 15;
+              if (ufo.type === 'triad_core') {
+                const hitRadius = ufo.radius;
                 if (dist < hitRadius + b.size) {
-                  const dmg = (b.isLaser ? 28 : 12) * 3; // 3x Damage during vulnerability window!
-                  ufo.health -= dmg;
-                  state.shotsHit++;
-                  createBigExplosion(b.x, b.y, '#ffffff');
-                  soundEngine.playSound('heavy_explode');
-
-                  if (!b.isLaser) {
-                    bulletsRef.current.splice(i, 1);
-                  }
-
-                  if (ufo.health <= 0) {
-                    destroyUfo(ufo, 10000);
-                    break;
+                   const triadCores = ufosRef.current.filter(u => u.type === 'triad_core');
+                   const isLinked = triadCores.length > 1;
+                   const isBerserk = triadCores.length === 1;
+                   
+                   // Damage calculation
+                   let dmg = (b.isLaser ? 25 : 10);
+                   if (isLinked) {
+                      dmg = Math.max(1, Math.floor(dmg * 0.15)); // heavily reduced damage when linked
+                   } else if (isBerserk) {
+                      dmg = Math.floor(dmg * 1.5); // Takes more damage in berserk mode but is deadlier
+                   }
+                   
+                   ufo.health -= dmg;
+                   state.bossDamageDealt += dmg;
+                   recordShotHit();
+                   createBigExplosion(b.x, b.y, isLinked ? '#00ffff' : '#ff0055');
+                   soundEngine.playSound(isLinked ? 'shield_hit' : 'heavy_explode');
+                   if (!b.isLaser) bulletsRef.current.splice(i, 1);
+                   
+                   if (ufo.health <= 0) {
+                      destroyUfo(ufo, 5000); // Base points
+                      
+                      if (triadCores.length === 3) {
+                         triggerBigBanner('⚠️ LINK BROKEN', 'DEFENSES WEAKENING!', '#00ffff', 'rgba(0, 255, 255, 0.8)', 90);
+                      } else if (triadCores.length === 2) {
+                         triggerBigBanner('⚠️ FINAL CORE ISOLATED ⚠️', 'BERSERK MODE ACTIVATED!', '#ff0055', 'rgba(255, 0, 85, 0.9)', 120);
+                         soundEngine.playSound('heavy_explode');
+                      } else {
+                         triggerBigBanner('TRIAD PROTOCOL DESTROYED', 'THREAT NEUTRALIZED', '#38bdf8', 'rgba(56, 189, 248, 0.9)', 180);
+                      }
+                      
+                      // Also spawn a bunch of powerups from the broken core
+                      if (Math.random() < 0.5) spawnCollectible(ufo.x, ufo.y, 'laser');
+                      spawnCollectible(ufo.x + 20, ufo.y, 'golden');
+                      break;
+                   } else {
+                      if (isLinked) {
+                         addFloatingText(ufo.x, ufo.y - 25, `LINKED! -${dmg}`, '#00ffff', 14);
+                      } else {
+                         addFloatingText(ufo.x, ufo.y - 25, `-${dmg} HP`, '#ff0055', 18);
+                      }
+                   }
+                }
+              } else if (ufo.type === 'core_severance') {
+                const hitRadius = ufo.radius;
+                if (dist < hitRadius + b.size) {
+                  const activeNodes = ufosRef.current.filter(u => u.type === 'shield_node' && u.health > 0).length;
+                  if (activeNodes > 0) {
+                     // Invulnerable due to nodes
+                     soundEngine.playSound('shield_hit');
+                     addFloatingText(b.x, b.y - 12, 'IMMUNE! DESTROY NODES', '#A371F7', 14);
+                     createSmallExplosion(b.x, b.y, '#A371F7');
+                     if (!b.isLaser) bulletsRef.current.splice(i, 1);
                   } else {
-                    addFloatingText(ufo.x, ufo.y - 25, `💥 OVERHEAT CRITICAL -${dmg} HP`, '#ffff00', 16);
+                     // Vulnerable
+                     const dmg = (b.isLaser ? 25 : 10);
+                     ufo.health -= dmg;
+                     state.bossDamageDealt += dmg;
+                     recordShotHit();
+                     createBigExplosion(b.x, b.y, '#ffffff');
+                     soundEngine.playSound('heavy_explode');
+                     if (!b.isLaser) bulletsRef.current.splice(i, 1);
+                     
+                     if (ufo.health <= 0) {
+                        destroyUfo(ufo, 20000); // 20k points for final boss
+                        break;
+                     } else {
+                        addFloatingText(ufo.x, ufo.y - 25, `🎯 CORE HIT -${dmg} HP`, '#A371F7', 20);
+                     }
                   }
                 }
               } else {
-                // SHIELDED PHASE (INVULNERABLE OUTSIDE ROTATING SHIELD GAP)
-                const shieldRadius = ufo.radius + 28;
-                if (dist < shieldRadius + b.size) {
-                  const impactAngle = Math.atan2(b.y - ufo.y, b.x - ufo.x);
-                  let diff = impactAngle - (ufo.shieldAngle || 0);
-                  while (diff < -Math.PI) diff += Math.PI * 2;
-                  while (diff > Math.PI) diff -= Math.PI * 2;
+                const isOverheated = ufo.bossState === 'cooldown';
 
-                  // 60-degree gap opening check (30 degrees = PI/6 on either side of shieldAngle)
-                  const isThroughGap = Math.abs(diff) <= Math.PI / 6;
-
-                  if (isThroughGap) {
-                    // DIRECT CENTRAL CORE HIT THROUGH ROTATING SHIELD GAP!
-                    const dmg = b.isLaser ? 12 : 5;
+                if (isOverheated) {
+                  // OVERHEATED VULNERABLE PHASE: SHIELD DROPPED & Core Defense Exposed!
+                  const hitRadius = ufo.radius + 15;
+                  if (dist < hitRadius + b.size) {
+                    const dmg = (b.isLaser ? 28 : 12) * 3; // 3x Damage during vulnerability window!
                     ufo.health -= dmg;
-                    state.shotsHit++;
-                    createSmallExplosion(b.x, b.y, '#00ffff');
-                    soundEngine.playSound('shield_hit');
+                    state.bossDamageDealt += dmg;
+                    recordShotHit();
+                    createBigExplosion(b.x, b.y, '#ffffff');
+                    soundEngine.playSound('heavy_explode');
 
                     if (!b.isLaser) {
                       bulletsRef.current.splice(i, 1);
@@ -3830,48 +4431,97 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                       destroyUfo(ufo, 10000);
                       break;
                     } else {
-                      addFloatingText(ufo.x, ufo.y - 25, `CRITICAL CORE HIT -${dmg} HP`, '#00ffff', 15);
+                      addFloatingText(ufo.x, ufo.y - 25, `💥 OVERHEAT CRITICAL -${dmg} HP`, '#ffff00', 16);
                     }
-                  } else {
-                    // HITS IMPENETRABLE ROTATING SHIELD RING - DEFLECTED!
-                    state.shotsHit++;
-                    soundEngine.playSound('shield_hit');
-                    for (let sp = 0; sp < 4; sp++) {
-                      particlesRef.current.push({
-                        x: b.x,
-                        y: b.y,
-                        vx: Math.cos(impactAngle + (Math.random() - 0.5)) * 6,
-                        vy: Math.sin(impactAngle + (Math.random() - 0.5)) * 6,
-                        life: 14,
-                        maxLife: 14,
-                        size: 2.5,
-                        color: '#00ffff',
-                        shape: 'spark'
-                      });
-                    }
-                    addFloatingText(b.x, b.y - 12, 'SHIELD DEFLECTED!', '#00ffff', 12);
-                    if (!b.isLaser) {
-                      bulletsRef.current.splice(i, 1);
+                  }
+                } else {
+                  // SHIELDED PHASE (INVULNERABLE OUTSIDE ROTATING SHIELD GAP)
+                  const shieldRadius = ufo.radius + 28;
+                  if (dist < shieldRadius + b.size) {
+                    const impactAngle = Math.atan2(b.y - ufo.y, b.x - ufo.x);
+                    let diff = impactAngle - (ufo.shieldAngle || 0);
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+
+                    // 60-degree gap opening check (30 degrees = PI/6 on either side of shieldAngle)
+                    const isThroughGap = Math.abs(diff) <= Math.PI / 6;
+
+                    if (isThroughGap) {
+                      // DIRECT CENTRAL CORE HIT THROUGH ROTATING SHIELD GAP!
+                      const dmg = b.isLaser ? 12 : 5;
+                      ufo.health -= dmg;
+                      state.bossDamageDealt += dmg;
+                      recordShotHit();
+                      const gapBonus = 300;
+                      addScore(gapBonus, true);
+                      addFloatingText(ufo.x, ufo.y - 45, `GAP HIT +${gapBonus}`, '#00ffff', 18);
+                      createBigExplosion(b.x, b.y, '#00ffff');
+                      soundEngine.playSound('heavy_explode');
+
+                      if (!b.isLaser) {
+                        bulletsRef.current.splice(i, 1);
+                      }
+
+                      if (ufo.health <= 0) {
+                        destroyUfo(ufo, 10000);
+                        break;
+                      } else {
+                        addFloatingText(ufo.x, ufo.y - 25, `🎯 CRITICAL CORE HIT -${dmg} HP`, '#00ffff', 20);
+                      }
+                    } else {
+                      // HITS IMPENETRABLE ROTATING SHIELD RING - DEFLECTED!
+                      state.shotsHit++;
+                      state.consecutiveHits = 0;
+                      soundEngine.playSound('shield_hit');
+                      for (let sp = 0; sp < 4; sp++) {
+                        particlesRef.current.push({
+                          x: b.x,
+                          y: b.y,
+                          vx: Math.cos(impactAngle + (Math.random() - 0.5)) * 6,
+                          vy: Math.sin(impactAngle + (Math.random() - 0.5)) * 6,
+                          life: 14,
+                          maxLife: 14,
+                          size: 2.5,
+                          color: '#00ffff',
+                          shape: 'spark'
+                        });
+                      }
+                      addFloatingText(b.x, b.y - 12, 'SHIELD DEFLECTED!', '#00ffff', 12);
+                      if (!b.isLaser) {
+                        bulletsRef.current.splice(i, 1);
+                      }
                     }
                   }
                 }
               }
             } else {
               if (dist < ufo.radius + b.size + 6) {
-                const dmg = b.isLaser ? 3 : 1;
+                let dmg = b.isLaser ? 3 : 1;
+                if (ufo.type === 'shield_node') {
+                  dmg = b.isLaser ? 40 : 20; // Increased damage to nodes so they can be reasonably destroyed!
+                }
+
                 ufo.health -= dmg;
-                state.shotsHit++;
-                createSmallExplosion(b.x, b.y, '#ff4444');
+                recordShotHit();
+                
+                if (ufo.type === 'shield_node') {
+                  createSmallExplosion(b.x, b.y, '#A371F7');
+                  soundEngine.playSound('shield_hit');
+                } else {
+                  createSmallExplosion(b.x, b.y, '#ff4444');
+                }
+                
                 if (!b.isLaser) {
                   bulletsRef.current.splice(i, 1);
                 }
 
                 if (ufo.health <= 0) {
-                  const pts = ufo.type === 'dreadnought' ? 2000 : ufo.type === 'mothership' ? 1000 : 400;
+                  const pts = ufo.type === 'shield_node' ? 500 : ufo.type === 'dreadnought' ? 2000 : ufo.type === 'mothership' ? 1000 : 400;
                   destroyUfo(ufo, pts);
                   break;
                 } else {
-                  addFloatingText(ufo.x, ufo.y - 15, `-${dmg} HP`, '#ff6666', 13);
+                  const color = ufo.type === 'shield_node' ? '#A371F7' : '#ff6666';
+                  addFloatingText(ufo.x, ufo.y - 15, `-${dmg} HP`, color, 13);
                 }
               }
             }
@@ -3896,9 +4546,34 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               createSmallExplosion(ub.x, ub.y, '#39ff14');
             }
           }
+          
+          if (ub.isMine) {
+            ub.vx *= 0.98;
+            ub.vy *= 0.98;
+            
+            if (ship.alive) {
+               const dist = Math.hypot(ship.x - ub.x, ship.y - ub.y);
+               if (dist < 120) { // proximity trigger radius
+                  createBigExplosion(ub.x, ub.y, '#ff4400');
+                  addShockwave(ub.x, ub.y, 160, '#ffaa00');
+                  soundEngine.playSound('heavy_explode');
+                  
+                  if (dist < ship.radius + 80) { // actual damage radius
+                    const isShielded = pTimers.shield > 0 || pTimers.golden > 0 || ship.invincibleTimer > 0;
+                    if (isShielded) {
+                      soundEngine.playSound('shield_hit');
+                    } else {
+                      handlePlayerHit();
+                    }
+                  }
+                  ufoBulletsRef.current.splice(i, 1);
+                  continue;
+               }
+            }
+          }
 
           if (ship.alive) {
-            if (Math.hypot(ship.x - ub.x, ship.y - ub.y) < ship.radius + 6) {
+            if (Math.hypot(ship.x - ub.x, ship.y - ub.y) < ship.radius + (ub.isMine ? ub.size : 6)) {
               const isShielded = pTimers.shield > 0 || pTimers.golden > 0 || ship.invincibleTimer > 0;
               if (isShielded) {
                 createSmallExplosion(ub.x, ub.y, '#00ffcc');
@@ -4020,6 +4695,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         }
 
         // 7. PARTICLES & SHOCKWAVES UPDATE
+        if (trailParticlesRef.current.length > 150) {
+          trailParticlesRef.current.splice(0, trailParticlesRef.current.length - 150);
+        }
         for (let i = trailParticlesRef.current.length - 1; i >= 0; i--) {
           const p = trailParticlesRef.current[i];
           p.x += p.vx;
@@ -4029,6 +4707,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           if (p.life <= 0 || p.size < 0.2) trailParticlesRef.current.splice(i, 1);
         }
 
+        if (particlesRef.current.length > 150) {
+          particlesRef.current.splice(0, particlesRef.current.length - 150);
+        }
         for (let i = particlesRef.current.length - 1; i >= 0; i--) {
           const p = particlesRef.current[i];
           p.x += p.vx;
@@ -4665,6 +5346,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         const isDreadnought = ufo.type === 'dreadnought';
         const isHunter = ufo.type === 'hunter';
         const isSwarmer = ufo.type === 'swarmer';
+        const isSupply = ufo.type === 'supply';
         const now = Date.now();
 
         // Draw Boss Grid Sweep Vector Beam Attack (Telegraph & Execution Phases)
@@ -4756,172 +5438,725 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         else if (isMothership) auraColor = 'rgba(217, 70, 239, 0.85)';
         else if (isHunter) auraColor = 'rgba(255, 153, 0, 0.9)';
         else if (isSwarmer) auraColor = 'rgba(0, 255, 102, 0.9)';
+        else if (isSupply) auraColor = 'rgba(255, 215, 0, 0.95)';
 
-        ctx.shadowBlur = ufo.isBoss ? 35 : isDreadnought ? 30 : isMothership ? 25 : isHunter ? 14 : isSwarmer ? 12 : 15;
+        ctx.shadowBlur = ufo.isBoss ? 35 : isDreadnought ? 30 : isMothership ? 25 : isHunter ? 14 : isSwarmer ? 12 : isSupply ? 20 : 15;
         ctx.shadowColor = auraColor;
 
-        if (ufo.isBoss) {
-          // Dreadnought Boss Visuals (TRON-style multi-faceted geometric warship)
-          const rad = ufo.radius;
-          const coreRot = now * 0.003;
-          const isOverheated = (ufo.overheatTimer || 0) > 0;
-          const phaseColor = isOverheated ? '#ffffff' : ufo.bossPhase === 2 ? '#ff0055' : '#e11d48';
-
-          // Directional Rotating Outer Geometric Shield Ring (Drops completely during Overheated phase)
-          if (!isOverheated) {
-            ctx.save();
-            const shR = rad + 24;
-            const sAngle = ufo.shieldAngle || 0;
-            const gapHalf = Math.PI / 6; // 30 degrees on either side = 60 degree gap opening
-
-            // Outer Neon Cyan Shield Ring Arc
-            ctx.strokeStyle = '#00ffff';
-            ctx.shadowColor = '#00ffff';
-            ctx.shadowBlur = 25;
-            ctx.lineWidth = 6;
-            ctx.beginPath();
-            ctx.arc(0, 0, shR, sAngle + gapHalf, sAngle + Math.PI * 2 - gapHalf);
-            ctx.stroke();
-
-            // Inner Bright White Core Shield Arc
-            ctx.strokeStyle = '#ffffff';
-            ctx.shadowBlur = 12;
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(0, 0, shR, sAngle + gapHalf, sAngle + Math.PI * 2 - gapHalf);
-            ctx.stroke();
-
-            // End-cap emitter nodes at the gap edges
-            for (const capSign of [1, -1]) {
-              const capA = sAngle + capSign * gapHalf;
-              const capX = Math.cos(capA) * shR;
-              const capY = Math.sin(capA) * shR;
-
-              ctx.fillStyle = '#ff0055';
-              ctx.shadowColor = '#ff0055';
-              ctx.shadowBlur = 18;
-              ctx.beginPath();
-              ctx.arc(capX, capY, 7, 0, Math.PI * 2);
-              ctx.fill();
-
-              ctx.fillStyle = '#ffffff';
-              ctx.beginPath();
-              ctx.arc(capX, capY, 3, 0, Math.PI * 2);
-              ctx.fill();
-            }
-
-            // Directional vulnerability indicator pulsing in the opening gap
-            const gapGuideX = Math.cos(sAngle) * (shR - 10);
-            const gapGuideY = Math.sin(sAngle) * (shR - 10);
-            ctx.fillStyle = `rgba(0, 255, 255, ${0.6 + Math.sin(now * 0.012) * 0.4})`;
-            ctx.shadowColor = '#00ffff';
-            ctx.shadowBlur = 15;
-            ctx.beginPath();
-            ctx.arc(gapGuideX, gapGuideY, 4.5, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.restore();
-          }
-
-          // Main Heavy Armored Outer Faceted Polyhedral Hull
-          const hullGrad = ctx.createRadialGradient(0, 0, 10, 0, 0, rad);
-          hullGrad.addColorStop(0, '#110b29');
-          hullGrad.addColorStop(0.6, '#09081a');
-          hullGrad.addColorStop(1, '#020108');
-
-          ctx.fillStyle = hullGrad;
-          ctx.strokeStyle = phaseColor;
-          ctx.lineWidth = 3;
-          ctx.shadowBlur = isOverheated ? 30 : 20;
-          ctx.shadowColor = phaseColor;
-
+        if (isSupply) {
+          ctx.strokeStyle = '#ffd700';
+          ctx.fillStyle = 'rgba(255, 215, 0, 0.25)';
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.moveTo(0, -rad * 1.1); // Front Command Spire
-          ctx.lineTo(rad * 0.45, -rad * 0.8);
-          ctx.lineTo(rad * 0.85, -rad * 0.4);
-          ctx.lineTo(rad * 1.1, rad * 0.1); // Wing tip right
-          ctx.lineTo(rad * 0.8, rad * 0.65);
-          ctx.lineTo(rad * 0.4, rad * 0.95); // Tail flank right
-          ctx.lineTo(0, rad * 0.8); // Rear thruster bay
-          ctx.lineTo(-rad * 0.4, rad * 0.95); // Tail flank left
-          ctx.lineTo(-rad * 0.8, rad * 0.65);
-          ctx.lineTo(-rad * 1.1, rad * 0.1); // Wing tip left
-          ctx.lineTo(-rad * 0.85, -rad * 0.4);
-          ctx.lineTo(-rad * 0.45, -rad * 0.8);
+          ctx.moveTo(0, -ufo.radius);
+          ctx.lineTo(ufo.radius, 0);
+          ctx.lineTo(0, ufo.radius);
+          ctx.lineTo(-ufo.radius, 0);
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
 
-          // Inner Faceted Circuit Wireframe Lines
-          ctx.strokeStyle = isOverheated ? '#ffffff' : ufo.bossPhase === 2 ? '#ff4488' : '#fb7185';
-          ctx.lineWidth = 1.5;
+          // Inner glowing crystal core
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#ffd700';
           ctx.beginPath();
-          ctx.moveTo(0, -rad * 1.1);
-          ctx.lineTo(0, rad * 0.8);
-          ctx.moveTo(-rad * 1.1, rad * 0.1);
-          ctx.lineTo(-rad * 0.35, 0);
-          ctx.moveTo(rad * 1.1, rad * 0.1);
-          ctx.lineTo(rad * 0.35, 0);
+          ctx.arc(0, 0, 5, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (ufo.type === 'shield_node') {
+          // Shield Node rendering: Hexagonal shield generator with rotating ring and glowing lens
+          const rad = ufo.radius;
+          const nodePulse = Math.sin(now * 0.005) * 0.5 + 0.5;
+          const nodeColor = '#A371F7';
+          const coreColor = '#00ffff';
 
-          ctx.moveTo(-rad * 0.85, -rad * 0.4);
-          ctx.lineTo(-rad * 0.35, -rad * 0.3);
-          ctx.lineTo(0, -rad * 0.6);
-          ctx.lineTo(rad * 0.35, -rad * 0.3);
-          ctx.lineTo(rad * 0.85, -rad * 0.4);
+          // Rotating Outer Tech Ring
+          ctx.save();
+          ctx.rotate(now * 0.0015);
+          ctx.strokeStyle = `rgba(163, 113, 247, ${0.4 + nodePulse * 0.3})`;
+          ctx.lineWidth = 3;
+          ctx.setLineDash([15, 10, 5, 10]);
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 1.2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
 
-          ctx.moveTo(-rad * 0.8, rad * 0.65);
-          ctx.lineTo(-rad * 0.3, rad * 0.35);
-          ctx.lineTo(0, rad * 0.4);
-          ctx.lineTo(rad * 0.3, rad * 0.35);
-          ctx.lineTo(rad * 0.8, rad * 0.65);
+          // Hexagonal Drone Body
+          ctx.save();
+          ctx.rotate(ufo.angle || now * 0.0008);
+          ctx.strokeStyle = nodeColor;
+          ctx.shadowBlur = 15 + nodePulse * 10;
+          ctx.shadowColor = nodeColor;
+          ctx.lineWidth = 3;
+          ctx.fillStyle = 'rgba(10, 5, 25, 0.9)';
+          
+          ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+             const a = (i / 6) * Math.PI * 2;
+             if (i === 0) ctx.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
+             else ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+          }
+          ctx.closePath();
+          ctx.fill();
           ctx.stroke();
 
-          // Core Reactor Orb (White-Hot Pulsing during Overheated state!)
+          // Internal Support Struts
+          ctx.strokeStyle = 'rgba(163, 113, 247, 0.5)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+             const a = (i / 6) * Math.PI * 2;
+             ctx.moveTo(0, 0);
+             ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+          }
+          ctx.stroke();
+          ctx.restore();
+
+          // Glowing Central Lens
+          ctx.fillStyle = coreColor;
+          ctx.shadowBlur = 20;
+          ctx.shadowColor = coreColor;
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 0.35 + nodePulse * 3, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 0.15, 0, Math.PI * 2);
+          ctx.fill();
+
+        } else if (ufo.type === 'triad_core') {
+          // --- WAVE 15 FINAL BOSS: TRIAD PROTOCOL ---
+          const triadCores = ufosRef.current.filter(u => u.type === 'triad_core');
+          const isLinked = triadCores.length > 1;
+          const isBerserk = triadCores.length === 1;
+          const rad = ufo.radius;
+          
+          ctx.save();
+          // Draw energy beams connecting them (only draw from the first core to avoid overlap)
+          if (isLinked && ufo.id === triadCores[0].id) {
+             ctx.save();
+             // Draw connecting laser tethers
+             ctx.lineWidth = 6 + Math.sin(now * 0.015) * 3;
+             ctx.strokeStyle = '#00ffff';
+             ctx.shadowBlur = 30;
+             ctx.shadowColor = '#00ffff';
+             ctx.beginPath();
+             for(let c = 0; c < triadCores.length; c++) {
+                const core = triadCores[c];
+                if (c === 0) ctx.moveTo(core.x, core.y);
+                else ctx.lineTo(core.x, core.y);
+             }
+             if (triadCores.length > 2) ctx.closePath();
+             ctx.stroke();
+             
+             // Inner brighter beam
+             ctx.lineWidth = 2;
+             ctx.strokeStyle = '#ffffff';
+             ctx.shadowBlur = 10;
+             ctx.beginPath();
+             for(let c = 0; c < triadCores.length; c++) {
+                const core = triadCores[c];
+                if (c === 0) ctx.moveTo(core.x, core.y);
+                else ctx.lineTo(core.x, core.y);
+             }
+             if (triadCores.length > 2) ctx.closePath();
+             ctx.stroke();
+             ctx.restore();
+          }
+
+          ctx.translate(ufo.x, ufo.y);
+          
+          const pulse = (Math.sin(now * (isBerserk ? 0.02 : 0.01)) + 1) / 2;
+          const coreColor = isBerserk ? '#ff0055' : '#a855f7';
+          const accentColor = isBerserk ? '#ffaa00' : '#00ffff';
+
+          // Outer corrupted rings
+          ctx.save();
+          ctx.rotate(now * (isBerserk ? 0.005 : 0.002));
+          ctx.strokeStyle = coreColor;
+          ctx.shadowBlur = 20 + pulse * 20;
+          ctx.shadowColor = coreColor;
+          ctx.lineWidth = 4;
+          
+          // Hexagon orbit
+          ctx.beginPath();
+          for(let i=0; i<6; i++) {
+             const a = (i/6) * Math.PI * 2;
+             const r = rad * 1.1 + Math.sin(now * 0.01 + i) * 10;
+             if (i===0) ctx.moveTo(Math.cos(a)*r, Math.sin(a)*r);
+             else ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+          }
+          ctx.closePath();
+          ctx.stroke();
+          
+          // Outer nodes
+          ctx.fillStyle = accentColor;
+          for(let i=0; i<6; i++) {
+             const a = (i/6) * Math.PI * 2;
+             const r = rad * 1.1 + Math.sin(now * 0.01 + i) * 10;
+             ctx.beginPath();
+             ctx.arc(Math.cos(a)*r, Math.sin(a)*r, 6, 0, Math.PI*2);
+             ctx.fill();
+          }
+          ctx.restore();
+
+          // Central Faceted Mainframe
+          ctx.rotate(-now * 0.001);
+          
+          const grad = ctx.createRadialGradient(0, 0, rad * 0.1, 0, 0, rad);
+          grad.addColorStop(0, '#ffffff');
+          grad.addColorStop(0.3, coreColor);
+          grad.addColorStop(1, '#05030f');
+          
+          ctx.fillStyle = grad;
+          ctx.strokeStyle = accentColor;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(0, -rad);
+          ctx.lineTo(rad * 0.866, -rad * 0.5);
+          ctx.lineTo(rad * 0.866, rad * 0.5);
+          ctx.lineTo(0, rad);
+          ctx.lineTo(-rad * 0.866, rad * 0.5);
+          ctx.lineTo(-rad * 0.866, -rad * 0.5);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          
+          // Inner eye / core
+          ctx.fillStyle = isBerserk ? '#ffaa00' : '#ffffff';
+          ctx.shadowBlur = 40;
+          ctx.shadowColor = ctx.fillStyle;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, rad * 0.2, rad * 0.4 + pulse * rad * 0.1, 0, 0, Math.PI*2);
+          ctx.fill();
+          
+          ctx.restore();
+
+        } else if (ufo.type === 'core_severance') {
+          // --- LEVEL 10 FINAL BOSS: CORE SEVERANCE (BIBLICALLY ACCURATE AI SERAPHIM) ---
+          const rad = ufo.radius;
+          const isVulnerable = ufo.bossPhase === 2; // Phase 2 means nodes are dead
+          
+          const pulseSpeed = isVulnerable ? 0.012 : 0.003;
+          const rotateSpeed = isVulnerable ? 0.004 : 0.001;
+          const eyePulse = Math.sin(now * pulseSpeed) * 0.5 + 0.5;
+          const slowRot = now * rotateSpeed;
+          
+          const primaryColor = isVulnerable ? '#ffaa00' : '#00ffff'; // TRON cyan and overheat amber
+          const accentColor = isVulnerable ? '#ffffff' : '#ff0055';
+
+          ctx.shadowBlur = isVulnerable ? 50 + eyePulse * 40 : 30 + eyePulse * 15;
+          ctx.shadowColor = primaryColor;
+          
+          // Outer Orbiting Runes/Glyphs (Binary/Hex data rings)
+          ctx.save();
+          ctx.rotate(-slowRot * 0.5);
+          ctx.fillStyle = isVulnerable ? `rgba(255, 0, 85, ${0.4 + eyePulse * 0.4})` : `rgba(163, 113, 247, ${0.4 + eyePulse * 0.3})`;
+          ctx.font = `bold ${rad * 0.15}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const ringRad = rad * 1.4;
+          for (let i = 0; i < 16; i++) {
+            const angle = (i / 16) * Math.PI * 2;
+            const px = Math.cos(angle) * ringRad;
+            const py = Math.sin(angle) * ringRad;
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(angle + Math.PI / 2);
+            ctx.fillText(Math.random() > 0.5 ? '1' : '0', 0, 0);
+            ctx.restore();
+          }
+          ctx.restore();
+
+          // Outer Gyroscopic Ring 1
+          ctx.save();
+          ctx.scale(1, 0.4 + Math.sin(now * 0.001) * 0.2);
+          ctx.rotate(slowRot * 1.2);
+          ctx.strokeStyle = primaryColor;
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 1.1, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+
+          // Outer Gyroscopic Ring 2
+          ctx.save();
+          ctx.scale(0.4 + Math.cos(now * 0.0013) * 0.2, 1);
+          ctx.rotate(-slowRot * 1.5);
+          ctx.strokeStyle = accentColor;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 1.2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+
+          // 6 Rotating Monoliths / "Wings"
+          ctx.save();
+          ctx.rotate(slowRot * 0.8);
+          ctx.fillStyle = '#05030f';
+          ctx.strokeStyle = primaryColor;
+          ctx.lineWidth = 2.5;
+          for (let i = 0; i < 6; i++) {
+             ctx.save();
+             ctx.rotate((i / 6) * Math.PI * 2);
+             // Breathing effect for wings
+             const wingDist = isVulnerable ? rad * 0.7 + Math.sin(now * 0.01 + i) * 15 : rad * 0.8;
+             ctx.translate(wingDist, 0);
+             
+             ctx.beginPath();
+             ctx.moveTo(0, -rad * 0.1);
+             ctx.lineTo(rad * 0.6, 0);
+             ctx.lineTo(0, rad * 0.1);
+             ctx.lineTo(-rad * 0.1, 0);
+             ctx.closePath();
+             ctx.fill();
+             ctx.stroke();
+             
+             // Inner wing glow
+             ctx.fillStyle = accentColor;
+             ctx.beginPath();
+             ctx.arc(rad * 0.4, 0, rad * 0.04, 0, Math.PI * 2);
+             ctx.fill();
+             
+             ctx.restore();
+          }
+          ctx.restore();
+
+          // Central Crystalline Core / "The All-Seeing Eye"
+          ctx.save();
+          const eyeRad = isVulnerable ? rad * 0.65 + eyePulse * 20 : rad * 0.55 + eyePulse * 8;
+          
+          // Core background (Outer Eyelids)
+          ctx.fillStyle = '#0a0a1a';
+          ctx.beginPath();
+          ctx.moveTo(-eyeRad, 0);
+          ctx.quadraticCurveTo(0, -eyeRad * 0.8, eyeRad, 0); // top lid
+          ctx.quadraticCurveTo(0, eyeRad * 0.8, -eyeRad, 0); // bottom lid
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = primaryColor;
+          ctx.lineWidth = 4;
+          ctx.stroke();
+
+          // Eyelid mask for the realistic eyeball
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(-eyeRad * 0.85, 0);
+          ctx.quadraticCurveTo(0, -eyeRad * 0.7, eyeRad * 0.85, 0);
+          ctx.quadraticCurveTo(0, eyeRad * 0.7, -eyeRad * 0.85, 0);
+          ctx.closePath();
+          ctx.clip(); // Mask the eyeball so it stays within the lids
+
+          // Sclera (Eyeball base)
+          const scleraGrad = ctx.createRadialGradient(0, 0, eyeRad * 0.2, 0, 0, eyeRad);
+          scleraGrad.addColorStop(0, isVulnerable ? `rgba(255, 230, 230, ${0.9 + eyePulse*0.1})` : `rgba(220, 255, 255, ${0.9 + eyePulse*0.1})`);
+          scleraGrad.addColorStop(1, isVulnerable ? '#880022' : '#004466');
+          ctx.fillStyle = scleraGrad;
+          ctx.shadowBlur = isVulnerable ? 50 : 25;
+          ctx.shadowColor = accentColor;
+          ctx.fillRect(-eyeRad, -eyeRad, eyeRad * 2, eyeRad * 2);
+
+          // Extraocular Muscles (Rectus & Oblique visible at the corners)
+          // Medial & Lateral Rectus insertions
+          ctx.fillStyle = 'rgba(200, 30, 50, 0.7)';
+          ctx.beginPath();
+          ctx.moveTo(-eyeRad * 0.85, 0);
+          ctx.lineTo(-eyeRad * 0.6, -eyeRad * 0.15);
+          ctx.lineTo(-eyeRad * 0.5, 0);
+          ctx.lineTo(-eyeRad * 0.6, eyeRad * 0.15);
+          ctx.fill();
+          
+          ctx.beginPath();
+          ctx.moveTo(eyeRad * 0.85, 0);
+          ctx.lineTo(eyeRad * 0.6, -eyeRad * 0.15);
+          ctx.lineTo(eyeRad * 0.5, 0);
+          ctx.lineTo(eyeRad * 0.6, eyeRad * 0.15);
+          ctx.fill();
+          
+          // Tiny blood vessels growing from corners
+          ctx.strokeStyle = 'rgba(200, 20, 20, 0.4)';
+          ctx.lineWidth = 1;
+          for(let i=0; i<5; i++) {
+            ctx.beginPath();
+            ctx.moveTo(-eyeRad * 0.6, (Math.random() - 0.5) * eyeRad * 0.2);
+            ctx.quadraticCurveTo(-eyeRad * 0.3, (Math.random() - 0.5) * eyeRad * 0.4, 0, (Math.random() - 0.5) * eyeRad * 0.2);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(eyeRad * 0.6, (Math.random() - 0.5) * eyeRad * 0.2);
+            ctx.quadraticCurveTo(eyeRad * 0.3, (Math.random() - 0.5) * eyeRad * 0.4, 0, (Math.random() - 0.5) * eyeRad * 0.2);
+            ctx.stroke();
+          }
+
+          // Determine Look Direction (Iris & Pupil positioning)
+          let lookX = 0;
+          let lookY = 0;
+          let pupilRotation = 0;
+          let distanceToShip = 0;
+          if (ship.alive) {
+             const angleToShip = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+             distanceToShip = Math.hypot(ship.x - ufo.x, ship.y - ufo.y);
+             // Limit look distance based on eye radius so iris doesn't leave eyeball
+             const maxLook = eyeRad * 0.35;
+             const distFactor = Math.min(distanceToShip / 600, 1);
+             const lookDist = maxLook * distFactor;
+             lookX = Math.cos(angleToShip) * lookDist;
+             lookY = Math.sin(angleToShip) * lookDist;
+             pupilRotation = angleToShip + Math.PI / 2; // Point slit towards player
+          }
+
+          // Draw the Iris
+          ctx.save();
+          ctx.translate(lookX, lookY);
+          
+          // Perspective squash of the iris when looking to the sides
+          const lookDistMag = Math.hypot(lookX, lookY);
+          const maxLookMag = eyeRad * 0.35;
+          const squash = 1 - (lookDistMag / maxLookMag) * 0.3; // Squash up to 30%
+          
+          ctx.rotate(pupilRotation); // rotate towards look angle
+          ctx.scale(1, squash); // squash in the axis of looking
+          // un-rotate so the iris is drawn properly, or keep it rotated if pupil is a slit.
+          // Since it's an alien pupil, let's keep it aligned with the look direction!
+          
+          const irisRad = eyeRad * 0.4;
+          
+          // Iris background
+          const irisColor = isVulnerable ? '#ff5500' : '#00ffff';
+          const irisGrad = ctx.createRadialGradient(0, 0, irisRad * 0.2, 0, 0, irisRad);
+          irisGrad.addColorStop(0, '#000000'); // pupil edge
+          irisGrad.addColorStop(0.2, irisColor);
+          irisGrad.addColorStop(0.8, isVulnerable ? '#880000' : '#000088');
+          irisGrad.addColorStop(1, '#000000');
+          ctx.fillStyle = irisGrad;
+          ctx.beginPath();
+          ctx.arc(0, 0, irisRad, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Iris striations (muscle fibers of the iris)
+          ctx.strokeStyle = isVulnerable ? 'rgba(255, 200, 0, 0.5)' : 'rgba(200, 255, 255, 0.5)';
+          ctx.lineWidth = 1;
+          for(let i=0; i<30; i++) {
+             const a = (i / 30) * Math.PI * 2;
+             const inner = irisRad * 0.3;
+             const outer = irisRad * 0.9 + Math.random() * (irisRad * 0.1);
+             ctx.beginPath();
+             ctx.moveTo(Math.cos(a)*inner, Math.sin(a)*inner);
+             ctx.lineTo(Math.cos(a)*outer, Math.sin(a)*outer);
+             ctx.stroke();
+          }
+
+          // The Slit Pupil (Dilates based on vulnerability and distance)
+          ctx.fillStyle = '#000000';
+          ctx.shadowBlur = 0;
+          ctx.beginPath();
+          const pupilWidth = isVulnerable ? eyeRad * 0.15 : eyeRad * 0.05;
+          const pupilHeight = isVulnerable ? eyeRad * 0.35 : eyeRad * 0.3;
+          ctx.ellipse(0, 0, pupilWidth, pupilHeight, 0, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Corrupted Iris glitch effect
+          if (isVulnerable) {
+             ctx.strokeStyle = '#ffaa00';
+             ctx.lineWidth = 2;
+             ctx.beginPath();
+             ctx.arc(0, 0, irisRad * 0.8, 0, Math.PI * 2);
+             ctx.stroke();
+             
+             // Random glitch lines across eye
+             if (Math.random() < 0.3) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(-irisRad * 0.9, (Math.random() - 0.5) * irisRad);
+                ctx.lineTo(irisRad * 0.9, (Math.random() - 0.5) * irisRad);
+                ctx.stroke();
+             }
+          }
+          
+          // Glossy Eye Reflection (Specular Highlight)
+          ctx.restore(); // restore translation & scaling for iris to draw reflection fixed to light source
+          
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+          ctx.beginPath();
+          ctx.ellipse(-eyeRad * 0.2, -eyeRad * 0.25, eyeRad * 0.15, eyeRad * 0.08, -Math.PI/6, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(eyeRad * 0.3, eyeRad * 0.2, eyeRad * 0.04, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.restore(); // Remove Eyelid clipping
+
+          ctx.restore();
+
+        } else if (ufo.type === 'dreadnought') {
+          const rad = ufo.radius;
+          const coreRot = now * 0.003;
+          const isOverheated = ufo.bossState === 'cooldown';
+          const phaseColor = isOverheated ? '#ffffff' : ufo.bossPhase === 2 ? '#ffaa00' : '#00ffff'; // TRON cyan and overheat amber
+
+          // If overheated, emit heavy particles and glow!
+          if (isOverheated) {
+            ctx.shadowBlur = 50 + Math.random() * 20;
+            ctx.shadowColor = '#ffffff';
+            if (Math.random() < 0.2) {
+              particlesRef.current.push({
+                x: ufo.x + (Math.random() - 0.5) * rad,
+                y: ufo.y + (Math.random() - 0.5) * rad,
+                vx: (Math.random() - 0.5) * 10,
+                vy: (Math.random() - 0.5) * 10,
+                life: 30,
+                maxLife: 30,
+                size: 3 + Math.random() * 4,
+                color: Math.random() < 0.5 ? '#ffffff' : '#ffff00',
+                shape: 'spark'
+              });
+            }
+          }
+
+          // Directional Rotating Outer Geometric Shield Ring (Drops completely during Overheated phase)
+          if (!isOverheated) {
+            ctx.save();
+            const shR = rad + 35; // Moved further out
+            const sAngle = ufo.shieldAngle || 0;
+            const gapHalf = Math.PI / 6.5; // Slightly narrower gap
+            const arcStart = sAngle + gapHalf;
+            const arcEnd = sAngle + Math.PI * 2 - gapHalf;
+
+            // Faint inner energy field
+            ctx.fillStyle = 'rgba(0, 255, 255, 0.08)';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.arc(0, 0, shR, arcStart, arcEnd);
+            ctx.fill();
+
+            // Heavy Outer Hex Shield Arc
+            ctx.strokeStyle = '#00ffff';
+            ctx.shadowColor = '#00ffff';
+            ctx.shadowBlur = 30;
+            ctx.lineWidth = 10; // Thicker primary shield
+            ctx.beginPath();
+            ctx.arc(0, 0, shR, arcStart, arcEnd);
+            ctx.stroke();
+
+            // Inner Bright White Core Shield Arc
+            ctx.strokeStyle = '#ffffff';
+            ctx.shadowBlur = 15;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(0, 0, shR, arcStart, arcEnd);
+            ctx.stroke();
+            
+            // Secondary orbiting rings
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([15, 10]);
+            ctx.beginPath();
+            ctx.arc(0, 0, shR + 15, arcStart - 0.2, arcEnd + 0.2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // End-cap emitter nodes at the gap edges - BIGGER AND BRIGHTER CYAN
+            for (const capSign of [1, -1]) {
+              const capA = sAngle + capSign * gapHalf;
+              const capX = Math.cos(capA) * shR;
+              const capY = Math.sin(capA) * shR;
+              ctx.fillStyle = '#00ffff';
+              ctx.shadowColor = '#ffffff';
+              ctx.shadowBlur = 35;
+              ctx.beginPath();
+              ctx.arc(capX, capY, 14, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = '#ffffff';
+              ctx.beginPath();
+              ctx.arc(capX, capY, 6, 0, Math.PI * 2);
+              ctx.fill();
+            }
+
+            // Directional vulnerability indicator pulsing in the opening gap (ARROW POINTING IN)
+            const gapPulse = (Math.sin(now * 0.01) + 1) / 2; // 0 to 1
+            const arrowDist = shR + 45 + gapPulse * 25;
+            const arrowX = Math.cos(sAngle) * arrowDist;
+            const arrowY = Math.sin(sAngle) * arrowDist;
+            
+            ctx.strokeStyle = `rgba(0, 255, 255, ${0.5 + gapPulse * 0.5})`;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(sAngle) * shR, Math.sin(sAngle) * shR);
+            ctx.lineTo(arrowX, arrowY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = `rgba(0, 255, 255, ${0.8 + gapPulse * 0.2})`;
+            ctx.shadowColor = '#00ffff';
+            ctx.shadowBlur = 30;
+            ctx.font = 'bold 16px font-mono';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Draw inward pointing triangle arrow
+            ctx.translate(arrowX, arrowY);
+            ctx.rotate(sAngle + Math.PI); // Point inward
+            ctx.beginPath();
+            ctx.moveTo(15, 0);
+            ctx.lineTo(-15, -12);
+            ctx.lineTo(-15, 12);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.rotate(-(sAngle + Math.PI));
+            ctx.fillText('WEAK POINT', 0, -30);
+            ctx.translate(-arrowX, -arrowY);
+
+            ctx.restore();
+          }
+
+          // TRON Biomechanic Mainframe Core
+          const hullGrad = ctx.createRadialGradient(0, 0, 10, 0, 0, rad);
+          hullGrad.addColorStop(0, '#020108');
+          hullGrad.addColorStop(0.6, '#080515');
+          hullGrad.addColorStop(1, '#000000');
+
+          ctx.fillStyle = hullGrad;
+          ctx.strokeStyle = phaseColor;
+          ctx.lineWidth = ufo.bossPhase === 2 ? 6 : 4;
+          ctx.shadowBlur = isOverheated ? 45 : ufo.bossPhase === 2 ? 40 : 25;
+          ctx.shadowColor = phaseColor;
+          
+          // Angular TRON disk hull
+          ctx.beginPath();
+          ctx.moveTo(0, -rad * 1.2);
+          ctx.lineTo(rad * 0.6, -rad * 0.8);
+          ctx.lineTo(rad * 1.2, 0);
+          ctx.lineTo(rad * 0.6, rad * 0.8);
+          ctx.lineTo(0, rad * 1.2);
+          ctx.lineTo(-rad * 0.6, rad * 0.8);
+          ctx.lineTo(-rad * 1.2, 0);
+          ctx.lineTo(-rad * 0.6, -rad * 0.8);
+          ctx.closePath();
+          ctx.stroke();
+          ctx.fill();
+
+          // Internal biomechanic circuitry ribs
+          ctx.save();
+          ctx.strokeStyle = '#00ffff';
+          ctx.lineWidth = 2;
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = '#00ffff';
+          
+          for(let i=0; i<8; i++) {
+             const angle = (i/8) * Math.PI * 2;
+             ctx.beginPath();
+             ctx.moveTo(Math.cos(angle) * rad * 0.3, Math.sin(angle) * rad * 0.3);
+             ctx.lineTo(Math.cos(angle) * rad * 0.9, Math.sin(angle) * rad * 0.9);
+             // Circuit branches
+             const branchA = angle + Math.PI/8;
+             const branchB = angle - Math.PI/8;
+             ctx.lineTo(Math.cos(branchA) * rad * 1.0, Math.sin(branchA) * rad * 1.0);
+             ctx.moveTo(Math.cos(angle) * rad * 0.9, Math.sin(angle) * rad * 0.9);
+             ctx.lineTo(Math.cos(branchB) * rad * 1.0, Math.sin(branchB) * rad * 1.0);
+             ctx.stroke();
+          }
+          ctx.restore();
+
+          // Core Processing Node (Mouth/Central Reactor)
           if (isOverheated) {
             ctx.save();
             const heatPulse = 1.0 + Math.sin(now * 0.02) * 0.3;
+            ctx.translate(0, rad * 0.3); // Lower central core
+            
             ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 20 * heatPulse;
+            ctx.shadowBlur = 30 * heatPulse;
             ctx.shadowColor = '#ffffff';
 
             ctx.beginPath();
-            ctx.arc(0, 0, rad * 0.45 * heatPulse, 0, Math.PI * 2);
+            // Exposed glowing hexagon core
+            for(let i=0; i<6; i++) {
+                const a = (i/6)*Math.PI*2 + coreRot;
+                if (i===0) ctx.moveTo(Math.cos(a)*rad*0.5*heatPulse, Math.sin(a)*rad*0.5*heatPulse);
+                else ctx.lineTo(Math.cos(a)*rad*0.5*heatPulse, Math.sin(a)*rad*0.5*heatPulse);
+            }
+            ctx.closePath();
             ctx.fill();
 
             ctx.strokeStyle = '#ffff00';
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 4;
             ctx.shadowColor = '#ffff00';
-            ctx.shadowBlur = 18;
+            ctx.shadowBlur = 25;
             ctx.beginPath();
-            ctx.arc(0, 0, rad * 0.52 * heatPulse, 0, Math.PI * 2);
+            ctx.arc(0, 0, rad * 0.6 * heatPulse, 0, Math.PI * 2);
             ctx.stroke();
 
             ctx.fillStyle = '#ffffff';
             ctx.beginPath();
-            ctx.arc(0, 0, rad * 0.22, 0, Math.PI * 2);
+            ctx.arc(0, 0, rad * 0.25, 0, Math.PI * 2);
             ctx.fill();
             ctx.restore();
           } else {
             ctx.save();
-            ctx.rotate(-coreRot * 2);
+            ctx.translate(0, rad * 0.4);
+
+            ctx.strokeStyle = "#05030f";
+            ctx.lineWidth = 4;
             ctx.fillStyle = phaseColor;
-            ctx.shadowBlur = 25;
-            ctx.shadowColor = '#ff0055';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = phaseColor;
 
             ctx.beginPath();
-            ctx.arc(0, 0, rad * 0.32, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(0, 0, rad * 0.22, 0, Math.PI * 2);
+            for(let i=0; i<12; i++) {
+                const a = (i/12)*Math.PI*2;
+                const inner = rad * 0.35;
+                const outer = rad * 0.45;
+                ctx.moveTo(Math.cos(a)*inner, Math.sin(a)*inner);
+                ctx.lineTo(Math.cos(a)*outer, Math.sin(a)*outer);
+            }
             ctx.stroke();
 
-            ctx.fillStyle = '#ffffff';
+            ctx.rotate(-coreRot * 2);
+
+            ctx.fillStyle = phaseColor;
+            ctx.shadowBlur = 25;
+            ctx.shadowColor = "#ff0055";
+
+            ctx.beginPath();
+            for(let i=0; i<6; i++) {
+                const a = (i/6)*Math.PI*2;
+                if (i===0) ctx.moveTo(Math.cos(a)*rad*0.35, Math.sin(a)*rad*0.35);
+                else ctx.lineTo(Math.cos(a)*rad*0.35, Math.sin(a)*rad*0.35);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = "#ffffff";
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            for(let i=0; i<6; i++) {
+                const a = (i/6)*Math.PI*2;
+                if(i===0) ctx.moveTo(Math.cos(a)*rad*0.25, Math.sin(a)*rad*0.25);
+                else ctx.lineTo(Math.cos(a)*rad*0.25, Math.sin(a)*rad*0.25);
+            }
+            ctx.closePath();
+            ctx.stroke();
+
+            ctx.fillStyle = "#ffffff";
             ctx.beginPath();
             ctx.arc(0, 0, rad * 0.1, 0, Math.PI * 2);
             ctx.fill();
+
+            ctx.rotate(coreRot * 4);
+            ctx.strokeStyle = "#00ffff";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for(let i=0; i<3; i++) {
+                const a = (i/3)*Math.PI*2;
+                if(i===0) ctx.moveTo(Math.cos(a)*rad*0.18, Math.sin(a)*rad*0.18);
+                else ctx.lineTo(Math.cos(a)*rad*0.18, Math.sin(a)*rad*0.18);
+            }
+            ctx.closePath();
+            ctx.stroke();
+
             ctx.restore();
           }
         } else if (isDreadnought) {
@@ -5290,35 +6525,150 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           ctx.shadowBlur = 16;
           ctx.shadowColor = '#ff0055';
 
-          // Faceted Diamond Eye
-          ctx.beginPath();
-          ctx.moveTo(0, -eyeRadius * 1.35);
-          ctx.lineTo(eyeRadius * 1.1, 0);
-          ctx.lineTo(0, eyeRadius * 1.35);
-          ctx.lineTo(-eyeRadius * 1.1, 0);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
+          if (isMothership) {
+             // Mothership Realistic Cat/Reptile Eyes (Like level 10)
+             // The hexagon has vertices at 0, 60, 120, 180, 240, 300 degrees.
+             // We will put 3 eyes on it: One central, two on the sides.
+             const eyeSize = ufo.radius * 0.45;
+             const eyes = [
+               { x: 0, y: 0, size: eyeSize * 1.2 }, // Center big eye
+               { x: -ufo.radius * 0.5, y: ufo.radius * 0.3, size: eyeSize * 0.6 }, // Bottom left
+               { x: ufo.radius * 0.5, y: ufo.radius * 0.3, size: eyeSize * 0.6 } // Bottom right
+             ];
 
-          // Crosshair / Target Reticle Lines
-          ctx.strokeStyle = '#ffffff';
-          ctx.lineWidth = 1.2;
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = '#ffffff';
+             eyes.forEach(eyePos => {
+                 const mEyeRad = eyePos.size;
+                 ctx.save();
+                 ctx.translate(eyePos.x, eyePos.y);
 
-          const crossLen = eyeRadius * 1.6;
-          ctx.beginPath();
-          ctx.moveTo(0, -crossLen);
-          ctx.lineTo(0, crossLen);
-          ctx.moveTo(-crossLen, 0);
-          ctx.lineTo(crossLen, 0);
-          ctx.stroke();
+                 // Mask (Eyelids horizontal like lvl 10)
+                 ctx.beginPath();
+                 ctx.moveTo(-mEyeRad * 0.85, 0);
+                 ctx.quadraticCurveTo(0, -mEyeRad * 0.7, mEyeRad * 0.85, 0);
+                 ctx.quadraticCurveTo(0, mEyeRad * 0.7, -mEyeRad * 0.85, 0);
+                 ctx.closePath();
+                 ctx.clip(); // Mask the eyeball
+                 
+                 // Sclera
+                 const scleraGrad = ctx.createRadialGradient(0, 0, mEyeRad * 0.2, 0, 0, mEyeRad);
+                 scleraGrad.addColorStop(0, '#ffe0e0');
+                 scleraGrad.addColorStop(1, '#880000');
+                 ctx.fillStyle = scleraGrad;
+                 ctx.shadowBlur = 20;
+                 ctx.shadowColor = '#d946ef';
+                 ctx.fillRect(-mEyeRad, -mEyeRad, mEyeRad*2, mEyeRad*2);
 
-          // Bright Core Pupil Node
-          ctx.fillStyle = '#ffffff';
-          ctx.beginPath();
-          ctx.arc(0, 0, 2.8 * eyePulse, 0, Math.PI * 2);
-          ctx.fill();
+                 // Determine Look Direction (Iris & Pupil positioning)
+                 let lookX = 0;
+                 let lookY = 0;
+                 let pupilRotation = 0;
+                 if (ship.alive) {
+                     // Get the absolute world position of this eye
+                     const eyeWorldX = ufo.x + eyePos.x;
+                     const eyeWorldY = ufo.y + eyePos.y;
+                     const angleToShip = Math.atan2(ship.y - eyeWorldY, ship.x - eyeWorldX);
+                     const distanceToShip = Math.hypot(ship.x - eyeWorldX, ship.y - eyeWorldY);
+                     
+                     const maxLook = mEyeRad * 0.35;
+                     const distFactor = Math.min(distanceToShip / 600, 1);
+                     const lookDist = maxLook * distFactor;
+                     lookX = Math.cos(angleToShip) * lookDist;
+                     lookY = Math.sin(angleToShip) * lookDist;
+                     pupilRotation = angleToShip + Math.PI / 2; // Point slit towards player
+                 }
+                 
+                 // Draw the Iris
+                 ctx.save();
+                 ctx.translate(lookX, lookY);
+                 
+                 // Perspective squash
+                 const lookDistMag = Math.hypot(lookX, lookY);
+                 const squash = 1 - (lookDistMag / (mEyeRad * 0.35)) * 0.3;
+                 
+                 ctx.rotate(pupilRotation);
+                 ctx.scale(1, squash);
+                 
+                 const irisRad = mEyeRad * 0.45;
+                 const irisGrad = ctx.createRadialGradient(0,0, irisRad * 0.1, 0,0, irisRad);
+                 irisGrad.addColorStop(0, '#000000');
+                 irisGrad.addColorStop(0.2, '#d946ef');
+                 irisGrad.addColorStop(0.8, '#4c1d95');
+                 irisGrad.addColorStop(1, '#000000');
+                 ctx.fillStyle = irisGrad;
+                 ctx.beginPath();
+                 ctx.arc(0, 0, irisRad, 0, Math.PI*2);
+                 ctx.fill();
+                 
+                 // Iris striations
+                 ctx.strokeStyle = 'rgba(255, 150, 255, 0.4)';
+                 ctx.lineWidth = 1;
+                 for (let i = 0; i < 20; i++) {
+                    const a = (i / 20) * Math.PI * 2;
+                    ctx.beginPath();
+                    ctx.moveTo(Math.cos(a) * irisRad * 0.3, Math.sin(a) * irisRad * 0.3);
+                    ctx.lineTo(Math.cos(a) * irisRad * 0.9, Math.sin(a) * irisRad * 0.9);
+                    ctx.stroke();
+                 }
+
+                 // Pupil (Vertical slit)
+                 ctx.fillStyle = '#000000';
+                 ctx.shadowBlur = 0;
+                 ctx.beginPath();
+                 ctx.ellipse(0, 0, mEyeRad * 0.08, mEyeRad * 0.3, 0, 0, Math.PI*2);
+                 ctx.fill();
+                 
+                 ctx.restore();
+                 
+                 // Eye reflection (static)
+                 ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                 ctx.beginPath();
+                 ctx.ellipse(-mEyeRad * 0.2, -mEyeRad * 0.25, mEyeRad * 0.1, mEyeRad * 0.05, -Math.PI/6, 0, Math.PI*2);
+                 ctx.fill();
+                 
+                 ctx.restore(); // end mask
+                 
+                 // Outer eyelid rim
+                 ctx.strokeStyle = '#d946ef';
+                 ctx.lineWidth = 3;
+                 ctx.shadowBlur = 10;
+                 ctx.beginPath();
+                 ctx.moveTo(-mEyeRad * 0.85, 0);
+                 ctx.quadraticCurveTo(0, -mEyeRad * 0.7, mEyeRad * 0.85, 0);
+                 ctx.quadraticCurveTo(0, mEyeRad * 0.7, -mEyeRad * 0.85, 0);
+                 ctx.closePath();
+                 ctx.stroke();
+             });
+          } else {
+            // Faceted Diamond Eye
+            ctx.beginPath();
+            ctx.moveTo(0, -eyeRadius * 1.35);
+            ctx.lineTo(eyeRadius * 1.1, 0);
+            ctx.lineTo(0, eyeRadius * 1.35);
+            ctx.lineTo(-eyeRadius * 1.1, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Crosshair / Target Reticle Lines
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ffffff';
+
+            const crossLen = eyeRadius * 1.6;
+            ctx.beginPath();
+            ctx.moveTo(0, -crossLen);
+            ctx.lineTo(0, crossLen);
+            ctx.moveTo(-crossLen, 0);
+            ctx.lineTo(crossLen, 0);
+            ctx.stroke();
+
+            // Bright Core Pupil Node
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, 2.8 * eyePulse, 0, Math.PI * 2);
+            ctx.fill();
+          }
 
           ctx.restore();
         }
@@ -5821,31 +7171,64 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       ufoBulletsRef.current.forEach((ub) => {
         ctx.save();
         ctx.translate(ub.x, ub.y);
-        ctx.shadowBlur = 18;
-        ctx.shadowColor = '#ff3344';
+        
+        if (ub.isMine) {
+          ctx.shadowBlur = 25;
+          ctx.shadowColor = ub.color || '#ffaa00';
+          
+          // Pulsing warning radius
+          const pulse = (Math.sin(Date.now() * 0.005) + 1) / 2;
+          ctx.strokeStyle = `rgba(255, 170, 0, ${0.1 + pulse * 0.3})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(0, 0, 120, 0, Math.PI * 2);
+          ctx.stroke();
 
-        // Pulsing alien energy orb
-        ctx.fillStyle = 'rgba(255, 51, 68, 0.4)';
-        ctx.beginPath();
-        ctx.arc(0, 0, ub.size * 2, 0, Math.PI * 2);
-        ctx.fill();
+          // Spiked geometric mine body
+          ctx.rotate(Date.now() * 0.002);
+          ctx.fillStyle = '#220000';
+          ctx.strokeStyle = '#ffaa00';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (let i = 0; i < 8; i++) {
+             const a = (i / 8) * Math.PI * 2;
+             const r = i % 2 === 0 ? ub.size : ub.size * 0.4;
+             ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
 
-        ctx.fillStyle = '#ff1133';
-        ctx.beginPath();
-        ctx.arc(0, 0, ub.size * 1.2, 0, Math.PI * 2);
-        ctx.fill();
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(0, 0, ub.size * 0.25, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.shadowBlur = 18;
+          ctx.shadowColor = '#ff3344';
 
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(0, 0, ub.size * 0.5, 0, Math.PI * 2);
-        ctx.fill();
+          // Pulsing alien energy orb
+          ctx.fillStyle = 'rgba(255, 51, 68, 0.4)';
+          ctx.beginPath();
+          ctx.arc(0, 0, ub.size * 2, 0, Math.PI * 2);
+          ctx.fill();
 
+          ctx.fillStyle = '#ff1133';
+          ctx.beginPath();
+          ctx.arc(0, 0, ub.size * 1.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(0, 0, ub.size * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
         ctx.restore();
       });
 
       // 10. Explosion Particles (Sharp Vector Sparks & TRON Diamond Light-Dots)
-      if (particlesRef.current.length > 220) {
-        particlesRef.current.splice(0, particlesRef.current.length - 220);
+      if (particlesRef.current.length > 150) {
+        particlesRef.current.splice(0, particlesRef.current.length - 150);
       }
 
       ctx.save();
@@ -5912,13 +7295,23 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           alpha = (1 - progress) / 0.2;
         }
 
+        const bannerH = 100;
+        const centerY = height / 2;
+
+        // Banner fade out logic if player ship is under/near it
+        let shipDistAlpha = 1;
+        const ship = shipRef.current;
+        if (ship && ship.alive) {
+            const distY = Math.abs(ship.y - centerY);
+            if (distY < bannerH / 2 + 60) {
+                shipDistAlpha = Math.max(0.15, (distY - (bannerH / 2)) / 60);
+            }
+        }
+
         const scale = 1.12 - Math.sin(progress * Math.PI) * 0.12;
 
         ctx.save();
-        ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-
-        const bannerH = 100;
-        const centerY = height / 2;
+        ctx.globalAlpha = Math.max(0, Math.min(1, alpha * shipDistAlpha));
 
         ctx.fillStyle = 'rgba(5, 8, 18, 0.88)';
         ctx.fillRect(0, centerY - bannerH / 2, width, bannerH);
@@ -6019,7 +7412,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       }
 
       // 13. Dedicated Boss Health Bar UI
-      const activeBoss = ufosRef.current.find((u) => u.isBoss);
+      const triadCores = ufosRef.current.filter(u => u.type === 'triad_core');
+      const activeBoss = triadCores.length > 0 ? triadCores[0] : ufosRef.current.find((u) => u.isBoss);
       if (activeBoss) {
         ctx.save();
         const barW = Math.min(480, width * 0.65);
@@ -6027,7 +7421,47 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         const barX = (width - barW) / 2;
         const barY = 32;
 
-        const isOverheated = activeBoss.bossState === 'cooldown';
+        let bossBarAlpha = 1;
+        const ship = shipRef.current;
+        if (ship && ship.alive) {
+           const distY = Math.abs(ship.y - barY);
+           if (distY < 80) {
+              bossBarAlpha = Math.max(0.15, distY / 80);
+           }
+        }
+        ctx.globalAlpha = bossBarAlpha;
+
+        const isTriad = triadCores.length > 0;
+        let totalHealth = activeBoss.health;
+        let totalMaxHealth = activeBoss.maxHealth;
+        let bossTitle = '';
+        let titleColor = '#ff0055';
+        let barColor = 'rgba(225, 29, 72, 0.8)';
+        let isOverheated = false;
+
+        if (isTriad) {
+           totalHealth = triadCores.reduce((sum, c) => sum + c.health, 0);
+           totalMaxHealth = triadCores.reduce((sum, c) => sum + (c.maxHealth || 1), 0);
+           const phaseText = triadCores.length === 1 ? 'FINAL CORE BERSERK' : `${triadCores.length} CORES ACTIVE`;
+           bossTitle = `⚠️ TRIAD PROTOCOL (${phaseText}) ⚠️`;
+           titleColor = triadCores.length === 1 ? '#ff0055' : '#00ffff';
+           barColor = triadCores.length === 1 ? 'rgba(255, 0, 85, 0.9)' : 'rgba(0, 255, 255, 0.8)';
+        } else {
+           isOverheated = activeBoss.bossState === 'cooldown';
+           const phaseLabel = activeBoss.bossPhase === 2 ? 'PHASE 2 - OVERDRIVE' : 'PHASE 1 - TACTICAL';
+           const name = activeBoss.type === 'core_severance' ? 'CORE SEVERANCE MAINFRAME' : 'DREADNOUGHT MOTHERSHIP';
+           bossTitle = `⚠️ ${name} (${phaseLabel}) ⚠️`;
+           if (isOverheated) {
+              titleColor = '#ffffff';
+              barColor = '#ffffff';
+           } else if (activeBoss.bossPhase === 2) {
+              titleColor = activeBoss.type === 'core_severance' ? '#ff0055' : '#ff0055';
+              barColor = 'rgba(255, 0, 85, 0.95)';
+           } else {
+              titleColor = activeBoss.type === 'core_severance' ? '#A371F7' : '#ff0055';
+              barColor = activeBoss.type === 'core_severance' ? 'rgba(163, 113, 247, 0.9)' : 'rgba(225, 29, 72, 0.8)';
+           }
+        }
 
         // Container Panel Frame
         ctx.fillStyle = 'rgba(6, 9, 20, 0.94)';
@@ -6035,21 +7469,20 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         ctx.roundRect(barX - 16, barY - 22, barW + 32, barH + 48, 10);
         ctx.fill();
 
-        ctx.strokeStyle = isOverheated ? '#ffffff' : activeBoss.bossPhase === 2 ? 'rgba(255, 0, 85, 0.95)' : 'rgba(225, 29, 72, 0.8)';
+        ctx.strokeStyle = barColor;
         ctx.lineWidth = 1.8;
         ctx.shadowBlur = isOverheated ? 20 : 15;
-        ctx.shadowColor = isOverheated ? '#ffffff' : '#ff0055';
+        ctx.shadowColor = titleColor;
         ctx.stroke();
 
         // Boss Title
         ctx.font = 'bold 12px font-mono, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillStyle = isOverheated ? '#ffffff' : '#ff0055';
+        ctx.fillStyle = titleColor;
         ctx.shadowBlur = 12;
-        ctx.shadowColor = isOverheated ? '#ffffff' : '#ff0055';
-        const phaseLabel = activeBoss.bossPhase === 2 ? 'PHASE 2 - OVERDRIVE' : 'PHASE 1 - TACTICAL';
-        ctx.fillText(`⚠️ DREADNOUGHT MOTHERSHIP (${phaseLabel}) ⚠️`, width / 2, barY - 10);
+        ctx.shadowColor = titleColor;
+        ctx.fillText(bossTitle, width / 2, barY - 10);
 
         // Bar Background
         ctx.fillStyle = 'rgba(20, 5, 12, 0.95)';
@@ -6059,7 +7492,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         ctx.strokeRect(barX, barY, barW, barH);
 
         // Fill Level Gradient
-        const hpRatio = Math.max(0, activeBoss.health / activeBoss.maxHealth);
+        const hpRatio = Math.max(0, totalHealth / totalMaxHealth);
         const barGrad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
         if (isOverheated) {
           barGrad.addColorStop(0, '#ffffff');
@@ -6123,7 +7556,17 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         const jitterY = (Math.random() - 0.5) * 6;
         const bannerY = 82 + jitterY;
 
+        let glitchAlpha = 1;
+        const ship = shipRef.current;
+        if (ship && ship.alive) {
+           const distY = Math.abs(ship.y - bannerY);
+           if (distY < 60) {
+              glitchAlpha = Math.max(0.15, distY / 60);
+           }
+        }
+
         ctx.save();
+        ctx.globalAlpha = glitchAlpha;
         ctx.fillStyle = 'rgba(25, 5, 25, 0.88)';
         ctx.fillRect((width - 480) / 2 + jitterX, bannerY - 14, 480, 28);
         ctx.strokeStyle = '#ff00ff';

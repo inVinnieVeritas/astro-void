@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Pause, Play, Settings, Trophy, Award, Zap, Shield, Sparkles, Target, Bomb } from 'lucide-react';
+import { Volume2, VolumeX, Pause, Play, Settings, Trophy, Award, Zap, Shield, Sparkles, Target, Bomb, Maximize, Minimize } from 'lucide-react';
 import { GameMode } from '../types';
 
 interface HUDProps {
@@ -31,6 +31,8 @@ interface HUDProps {
   onOpenSettings: () => void;
   onOpenLeaderboard: () => void;
   onOpenAchievements: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -52,7 +54,9 @@ export const HUD: React.FC<HUDProps> = ({
   onToggleMute,
   onOpenSettings,
   onOpenLeaderboard,
-  onOpenAchievements
+  onOpenAchievements,
+  isFullscreen,
+  onToggleFullscreen
 }) => {
   const [isHovered, setIsHovered] = React.useState(false);
   const isFaded = isShipNearHUD || isHovered;
@@ -81,7 +85,9 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
             <div>
               <div className="text-[10px] font-mono text-[#8B949E]">MODE</div>
-              <div className="text-xs font-mono font-bold text-[#3FB950] uppercase">{mode}</div>
+              <div className="text-xs font-mono font-bold text-[#3FB950] uppercase">
+                 {mode === 'wave_10_boss' ? 'CORE SEVERANCE' : mode.replace('_', ' ')}
+              </div>
             </div>
           </div>
 
@@ -284,6 +290,16 @@ export const HUD: React.FC<HUDProps> = ({
               title="Settings & Controls"
             >
               <Settings className="w-4 h-4" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.currentTarget.blur();
+                onToggleFullscreen();
+              }}
+              className="p-1.5 text-[#8B949E] hover:text-[#E6EDF3] hover:bg-[#21262D] rounded transition-colors outline-none"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+            >
+              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </button>
           </div>
 

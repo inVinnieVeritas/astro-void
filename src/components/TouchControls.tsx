@@ -20,6 +20,8 @@ interface TouchControlsProps {
 export const TouchControls: React.FC<TouchControlsProps> = ({
   onThrustStart,
   onThrustEnd,
+  onReverseStart,
+  onReverseEnd,
   onTurnLeftStart,
   onTurnLeftEnd,
   onTurnRightStart,
@@ -56,6 +58,16 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             aria-label="Rotate Left"
           >
             <RotateCcw className="w-5 h-5 text-[#8B949E]" />
+          </button>
+          <button
+            onTouchStart={(e) => { e.preventDefault(); onReverseStart(); }}
+            onTouchEnd={(e) => { e.preventDefault(); onReverseEnd(); }}
+            onMouseDown={onReverseStart}
+            onMouseUp={onReverseEnd}
+            className="w-12 h-12 bg-[#161B22]/80 active:bg-[#21262D] border border-[#30363D] rounded-xl flex items-center justify-center text-[#E6EDF3] backdrop-blur-md active:scale-95 transition-all"
+            aria-label="Reverse"
+          >
+            <ArrowUp className="w-5 h-5 text-[#8B949E] rotate-180" />
           </button>
           <button
             onTouchStart={(e) => { e.preventDefault(); onTurnRightStart(); }}

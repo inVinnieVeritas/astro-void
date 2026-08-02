@@ -136,7 +136,7 @@ export const CodexModal: React.FC<CodexModalProps> = ({ isOpen, onClose }) => {
                   </span>
                 </div>
                 <p className="text-xs text-[#8B949E] leading-relaxed">
-                  Massive heavily shielded dreadnought that charges up energy across 4 seconds before unleashing a devastating, screen-slicing Death Beam.
+                  Massive heavily shielded dreadnought. <strong>Shoot exactly through the rotating cyan shield gap</strong> to deal critical core damage! After it unleashes a screen-slicing Death Beam, it enters a <strong>5-second Overheat Cooldown</strong> where the shield drops completely and it takes 3X DAMAGE! Watch out for deployed Swarmers when it hits 50% HP.
                 </p>
               </div>
             </div>

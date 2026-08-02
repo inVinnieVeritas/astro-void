@@ -1,4 +1,4 @@
-export type GameMode = 'classic' | 'survival' | 'zen';
+export type GameMode = 'classic' | 'survival' | 'zen' | 'boss_rush' | 'wave_10_boss' | 'wave_15_boss';
 export type ControlScheme = 'classic' | 'mouse' | 'dual_stick';
 
 export type AsteroidType = 'normal' | 'ore' | 'molten' | 'volatile' | 'triple' | 'shield' | 'explosive' | 'crystal' | 'golden' | 'magma' | 'cryo' | 'magnetic' | 'hive' | 'phantom' | 'planetoid' | 'moon';
@@ -51,6 +51,7 @@ export interface Bullet {
   maxLife: number;
   size: number;
   isLaser?: boolean;
+  isMine?: boolean;
   color?: string;
   isPlayer: boolean;
 }
@@ -64,7 +65,7 @@ export interface UFO {
   radius: number;
   speed: number;
   shootTimer: number;
-  type: 'scout' | 'mothership' | 'hunter' | 'swarmer' | 'dreadnought';
+  type: 'scout' | 'mothership' | 'hunter' | 'swarmer' | 'dreadnought' | 'supply' | 'mine' | 'core_severance' | 'shield_node';
   health: number;
   maxHealth: number;
   angle: number;
@@ -87,7 +88,7 @@ export interface UFO {
   consumeTargetY?: number;
   isBoss?: boolean;
   bossPhase?: 1 | 2;
-  bossState?: 'burst' | 'laserCharge' | 'laserFire' | 'cooldown';
+  bossState?: 'burst' | 'laserCharge' | 'laserFire' | 'cooldown' | 'mines';
   bossStateTimer?: number;
   laserTargetAngle?: number;
   laserTargetX?: number;
@@ -99,6 +100,10 @@ export interface UFO {
   gridSweepFiring?: number;
   gridSweepAngle?: number;
   overheatTimer?: number;
+  isMinion?: boolean;
+  minionSpawnTimer?: number;
+  nextMinionInterval?: number;
+  hasDroppedOverheatPowerup?: boolean;
 }
 
 export interface Collectible {

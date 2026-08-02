@@ -15,10 +15,12 @@ import {
   Crosshair, 
   Flame, 
   Sparkles,
-  Info
+  Info,
+  Target
 } from 'lucide-react';
 import { GameMode, ControlScheme } from '../types';
 import { CodexModal } from './CodexModal';
+import { Maximize, Minimize } from 'lucide-react';
 
 interface StartScreenProps {
   highScore: number;
@@ -31,7 +33,10 @@ interface StartScreenProps {
   onStartGame: () => void;
   onOpenLeaderboard: () => void;
   onOpenAchievements: () => void;
+  onOpenChallenges: () => void;
   onOpenSettings: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
@@ -45,7 +50,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   onStartGame,
   onOpenLeaderboard,
   onOpenAchievements,
+  onOpenChallenges,
   onOpenSettings,
+  isFullscreen,
+  onToggleFullscreen,
 }) => {
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showCodex, setShowCodex] = useState(false);
@@ -86,20 +94,18 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         </h1>
         <p className="text-xs sm:text-sm md:text-base font-mono text-[#8B949E] mb-6 sm:mb-8 tracking-wide">
           NEON VECTOR SPACE FIGHTER
-        </p>
-
-        {/* Mode Selector - 3 Modes with Active vs Dimmed Styling */}
+        </p>        {/* Mode Selector - 3 Modes with Active vs Dimmed Styling */}
         <div className="w-full mb-6 sm:mb-8">
           <div className="flex items-center justify-between mb-2 px-1">
             <span className="text-xs font-mono font-bold text-[#8B949E] uppercase tracking-wider">
               SELECT MISSION MODE
             </span>
             <span className="text-[11px] font-mono text-[#58A6FF]/80">
-              {gameMode === 'classic' ? 'STANDARD ARCADE' : gameMode === 'survival' ? 'SHIELDED ENDLESS' : 'INVINCIBLE PRACTICE'}
+              {gameMode === 'classic' ? 'STANDARD ARCADE' : gameMode === 'survival' ? 'SHIELDED ENDLESS' : gameMode === 'zen' ? 'INVINCIBLE PRACTICE' : gameMode === 'boss_rush' ? 'WAVE 5 BOSS BATTLE' : 'WAVE 10 BOSS BATTLE'}
             </span>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {/* Classic */}
             <button
               type="button"
@@ -171,6 +177,78 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 Invincible Flight • Casual Stress-Free Practice
               </div>
             </button>
+
+            {/* Boss Rush (Wave 5) */}
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => onChangeGameMode('boss_rush')}
+              className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
+                gameMode === 'boss_rush'
+                  ? 'bg-[#F85149]/20 border-[#F85149] text-[#E6EDF3] shadow-[0_0_20px_rgba(248,81,73,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#F85149]/50'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+              }`}
+            >
+              <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
+                gameMode === 'boss_rush' ? 'text-[#F85149]' : 'text-[#6E7681]'
+              }`}>
+                WAVE 5 BOSS
+                {gameMode === 'boss_rush' && <div className="w-2.5 h-2.5 rounded-full bg-[#F85149] shadow-[0_0_10px_#F85149]" />}
+              </div>
+              <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
+                gameMode === 'boss_rush' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+              }`}>
+                Start Immediately at Wave 5 vs Dreadnought Warship
+              </div>
+            </button>
+            
+            {/* Wave 10 Boss */}
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => onChangeGameMode('wave_10_boss')}
+              className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
+                gameMode === 'wave_10_boss'
+                  ? 'bg-[#A371F7]/20 border-[#A371F7] text-[#E6EDF3] shadow-[0_0_20px_rgba(163,113,247,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#A371F7]/50'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+              }`}
+            >
+              <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
+                gameMode === 'wave_10_boss' ? 'text-[#A371F7]' : 'text-[#6E7681]'
+              }`}>
+                CORE SEVERANCE
+                {gameMode === 'wave_10_boss' && <div className="w-2.5 h-2.5 rounded-full bg-[#A371F7] shadow-[0_0_10px_#A371F7]" />}
+              </div>
+              <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
+                gameMode === 'wave_10_boss' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+              }`}>
+                Start at Wave 10 vs AI Mainframe Core
+              </div>
+            </button>
+
+            {/* Wave 15 Boss */}
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => onChangeGameMode('wave_15_boss')}
+              className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
+                gameMode === 'wave_15_boss'
+                  ? 'bg-[#00ffff]/20 border-[#00ffff] text-[#E6EDF3] shadow-[0_0_20px_rgba(0,255,255,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#00ffff]/50'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+              }`}
+            >
+              <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
+                gameMode === 'wave_15_boss' ? 'text-[#00ffff]' : 'text-[#6E7681]'
+              }`}>
+                TRIAD PROTOCOL
+                {gameMode === 'wave_15_boss' && <div className="w-2.5 h-2.5 rounded-full bg-[#00ffff] shadow-[0_0_10px_#00ffff]" />}
+              </div>
+              <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
+                gameMode === 'wave_15_boss' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+              }`}>
+                Start at Wave 15 vs Triad Cores
+              </div>
+            </button>
           </div>
         </div>
 
@@ -236,6 +314,16 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           <button
             type="button"
             tabIndex={-1}
+            onClick={onOpenChallenges}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#38BDF8] hover:border-[#38BDF8]/50 text-xs font-mono transition-all cursor-pointer"
+          >
+            <Target className="w-4 h-4 text-[#38BDF8]" />
+            CHALLENGES
+          </button>
+
+          <button
+            type="button"
+            tabIndex={-1}
             onClick={onOpenSettings}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#58A6FF] hover:border-[#58A6FF]/50 text-xs font-mono transition-all cursor-pointer"
           >
@@ -251,6 +339,20 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
           >
             {isMuted ? <VolumeX className="w-4 h-4 text-[#F85149]" /> : <Volume2 className="w-4 h-4 text-[#3FB950]" />}
+          </button>
+
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.currentTarget.blur();
+              onToggleFullscreen();
+            }}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#E6EDF3] hover:border-[#E6EDF3]/50 text-xs font-mono transition-all cursor-pointer"
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          >
+            {isFullscreen ? <Minimize className="w-4 h-4 text-[#E6EDF3]" /> : <Maximize className="w-4 h-4 text-[#E6EDF3]" />}
+            FULLSCREEN
           </button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { TouchControls } from './components/TouchControls';
 import { SettingsModal } from './components/SettingsModal';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { AchievementsModal } from './components/AchievementsModal';
+import { ChallengesModal } from './components/ChallengesModal';
 import { GameOverModal } from './components/GameOverModal';
 import { StartScreen } from './components/StartScreen';
 import { soundEngine } from './audio/soundEngine';
@@ -37,14 +38,120 @@ export default function App() {
 
   const [gameStarted, setGameStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
   const [isNewHighScore, setIsNewHighScore] = useState(false);
+  const [gameOverStats, setGameOverStats] = useState({
+    asteroidsDestroyed: 0,
+    ufosDestroyed: 0,
+    maxCombo: 0,
+    bossDamageDealt: 0,
+    accuracy: 0
+  });
   const [gameKey, setGameKey] = useState(0); // For forcing canvas restart
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const doc = window.document as any;
+      setIsFullscreen(!!(doc.fullscreenElement || doc.mozFullScreenElement || doc.webkitFullscreenElement || doc.msFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+    
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
+    };
+  }, []);
+
+  const handleToggleFullscreen = useCallback(() => {
+    const doc = window.document as any;
+    const docEl = doc.documentElement;
+
+    const requestFullScreen = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullScreen || docEl.msRequestFullscreen;
+    const cancelFullScreen = doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+
+    if (!doc.fullscreenElement && !doc.mozFullScreenElement && !doc.webkitFullscreenElement && !doc.msFullscreenElement) {
+      if (requestFullScreen) {
+        requestFullScreen.call(docEl).catch((err: any) => console.warn(err));
+      }
+    } else {
+      if (cancelFullScreen) {
+        cancelFullScreen.call(doc);
+      }
+    }
+  }, []);
 
   // Modal Dialog Visibility
   const [showSettings, setShowSettings] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showAchievements, setShowAchievements] = useState(false);
+  const [showChallenges, setShowChallenges] = useState(false);
+
+  // Challenges State & Persistence
+  const [completedChallenges, setCompletedChallenges] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('asteroids_completed_challenges') || '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const challengesList = [
+    {
+      id: 'wave_10',
+      title: 'Void Cadet',
+      description: 'Reach Wave 10 in Classic mode.',
+      rewardText: 'Badge of Honor',
+      completed: completedChallenges.includes('wave_10')
+    },
+    {
+      id: 'purist',
+      title: 'Purist',
+      description: 'Reach Wave 10 in Classic mode without using an EMP bomb.',
+      rewardText: 'Elite Pilot',
+      completed: completedChallenges.includes('purist')
+    },
+    {
+      id: 'chain_reaction',
+      title: 'Chain Reaction',
+      description: 'Achieve a 15x or higher combo streak.',
+      rewardText: 'Combo Master',
+      completed: completedChallenges.includes('chain_reaction')
+    },
+    {
+      id: 'marksman',
+      title: 'Marksman',
+      description: 'Reach Wave 8 with 70%+ accuracy (min 50 shots fired).',
+      rewardText: 'Sharp Shooter',
+      completed: completedChallenges.includes('marksman')
+    },
+    {
+      id: 'ufo_hunter',
+      title: 'UFO Hunter',
+      description: 'Destroy 3 or more alien UFOs in a single run.',
+      rewardText: 'Alien Bane',
+      completed: completedChallenges.includes('ufo_hunter')
+    },
+    {
+      id: 'boss_veteran',
+      title: 'Dreadnought Breaker',
+      description: 'Deal 2,000+ total damage to boss / mothership vessels.',
+      rewardText: 'Core Destroyer',
+      completed: completedChallenges.includes('boss_veteran')
+    },
+    {
+      id: 'survival_master',
+      title: 'Survival Specialist',
+      description: 'Reach Wave 8 in Survival mode.',
+      rewardText: 'Endurance Legend',
+      completed: completedChallenges.includes('survival_master')
+    }
+  ];
 
   // Stats & Persistence
   const [highScore, setHighScore] = useState<number>(() => {
@@ -134,7 +241,9 @@ export default function App() {
   const [achievements, setAchievements] = useState<Achievement[]>([
     { id: 'first_blood', title: 'First Blood', description: 'Destroy your first asteroid', icon: 'Target', unlocked: false, progress: 0, maxProgress: 1 },
     { id: 'emp_master', title: 'EMP Master', description: 'Trigger an EMP shockwave blast', icon: 'Zap', unlocked: false, progress: 0, maxProgress: 1 },
-    { id: 'ufo_hunter', title: 'UFO Hunter', description: 'Down a UFO Scout or Mothership', icon: 'Skull', unlocked: false, progress: 0, maxProgress: 1 },
+    { id: 'ufo_hunter', title: 'UFO Hunter', description: 'Down an elite UFO interceptor', icon: 'Skull', unlocked: false, progress: 0, maxProgress: 1 },
+    { id: 'boss_slayer', title: 'Boss Slayer', description: 'Destroy the Dreadnought Warship', icon: 'Crosshair', unlocked: false, progress: 0, maxProgress: 1 },
+    { id: 'sharpshooter', title: 'Sharpshooter', description: 'Achieve a 10x multiplier combo', icon: 'Star', unlocked: false, progress: 0, maxProgress: 1 },
     { id: 'wave_5', title: 'Veteran Pilot', description: 'Survive to Wave 5', icon: 'Award', unlocked: false, progress: 0, maxProgress: 1 },
     { id: 'wave_10', title: 'Space Legend', description: 'Reach Wave 10', icon: 'Trophy', unlocked: false, progress: 0, maxProgress: 1 }
   ]);
@@ -180,7 +289,7 @@ export default function App() {
 
   const handleStartGame = useCallback(() => {
     setScore(0);
-    setWave(1);
+    setWave(gameMode === 'wave_15_boss' ? 15 : gameMode === 'wave_10_boss' ? 10 : gameMode === 'boss_rush' ? 5 : 1);
     setLives(gameMode === 'zen' ? 99 : 3);
     setEmpCount(1);
     setHyperspaceCooldown(0);
@@ -197,7 +306,7 @@ export default function App() {
 
   const handleRestart = useCallback(() => {
     setScore(0);
-    setWave(1);
+    setWave(gameMode === 'wave_15_boss' ? 15 : gameMode === 'wave_10_boss' ? 10 : gameMode === 'boss_rush' ? 5 : 1);
     setLives(gameMode === 'zen' ? 99 : 3);
     setEmpCount(1);
     setHyperspaceCooldown(0);
@@ -213,8 +322,15 @@ export default function App() {
   }, [gameMode]);
 
   const handleGameOver = useCallback(
-    (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number) => {
+    (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => {
       setIsGameOver(true);
+      setGameOverStats({
+        asteroidsDestroyed: asteroidsCount,
+        ufosDestroyed,
+        maxCombo,
+        bossDamageDealt,
+        accuracy
+      });
 
       let isNew = false;
       if (finalScore > highScore) {
@@ -279,8 +395,33 @@ export default function App() {
       });
 
       if (asteroids > 0) unlockAchievement('first_blood');
+
+      // Check Challenges
+      const accuracy = shotsFired > 0 ? Math.round((shotsHit / shotsFired) * 100) : 0;
+      const newlyCompleted: string[] = [];
+      const check = (id: string, condition: boolean) => {
+        if (condition && !completedChallenges.includes(id) && !newlyCompleted.includes(id)) {
+          newlyCompleted.push(id);
+        }
+      };
+
+      check('wave_10', gameMode === 'classic' && finalWave >= 10);
+      check('purist', gameMode === 'classic' && finalWave >= 10 && empUsed === 0);
+      check('chain_reaction', gameOverStats.maxCombo >= 15);
+      check('marksman', finalWave >= 8 && shotsFired >= 50 && accuracy >= 70);
+      check('ufo_hunter', ufos >= 3);
+      check('boss_veteran', gameOverStats.bossDamageDealt >= 2000);
+      check('survival_master', gameMode === 'survival' && finalWave >= 8);
+
+      if (newlyCompleted.length > 0) {
+        const updated = [...completedChallenges, ...newlyCompleted];
+        setCompletedChallenges(updated);
+        try {
+          localStorage.setItem('asteroids_completed_challenges', JSON.stringify(updated));
+        } catch (e) {}
+      }
     },
-    [unlockAchievement]
+    [unlockAchievement, gameMode, completedChallenges, gameOverStats]
   );
 
   // Mute Toggle
@@ -314,6 +455,7 @@ export default function App() {
       <AsteroidsCanvas
         key={gameKey}
         gameMode={gameMode}
+        initialWave={wave}
         controlScheme={controlScheme}
         isPaused={isPaused || !gameStarted}
         crtFilter={crtFilter}
@@ -345,7 +487,10 @@ export default function App() {
           onStartGame={handleStartGame}
           onOpenLeaderboard={() => setShowLeaderboard(true)}
           onOpenAchievements={() => setShowAchievements(true)}
+          onOpenChallenges={() => setShowChallenges(true)}
           onOpenSettings={() => setShowSettings(true)}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={handleToggleFullscreen}
         />
       )}
 
@@ -370,6 +515,8 @@ export default function App() {
         onOpenSettings={() => setShowSettings(true)}
         onOpenLeaderboard={() => setShowLeaderboard(true)}
         onOpenAchievements={() => setShowAchievements(true)}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
       />
 
       {/* Mobile/Tablet Touch Controls */}
@@ -429,12 +576,11 @@ export default function App() {
           highScore={highScore}
           isNewHighScore={isNewHighScore}
           wave={wave}
-          asteroidsDestroyed={lifetimeStats.asteroidsDestroyed}
-          accuracy={
-            lifetimeStats.shotsFired > 0
-              ? Math.round((lifetimeStats.shotsHit / lifetimeStats.shotsFired) * 100)
-              : 0
-          }
+          asteroidsDestroyed={gameOverStats.asteroidsDestroyed}
+          ufosDestroyed={gameOverStats.ufosDestroyed}
+          accuracy={gameOverStats.accuracy}
+          maxCombo={gameOverStats.maxCombo}
+          bossDamageDealt={gameOverStats.bossDamageDealt}
           onRestart={handleRestart}
           onOpenLeaderboard={() => {
             setShowLeaderboard(true);
@@ -496,6 +642,13 @@ export default function App() {
         isOpen={showAchievements}
         onClose={() => setShowAchievements(false)}
         achievements={achievements}
+      />
+
+      {/* Challenges Modal */}
+      <ChallengesModal
+        isOpen={showChallenges}
+        onClose={() => setShowChallenges(false)}
+        challenges={challengesList}
       />
     </div>
   );
