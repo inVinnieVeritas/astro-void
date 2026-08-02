@@ -65,7 +65,7 @@ export interface UFO {
   radius: number;
   speed: number;
   shootTimer: number;
-  type: 'scout' | 'mothership' | 'hunter' | 'swarmer' | 'dreadnought' | 'supply' | 'mine' | 'core_severance' | 'shield_node';
+  type: 'scout' | 'mothership' | 'hunter' | 'swarmer' | 'dreadnought' | 'supply' | 'mine' | 'core_severance' | 'shield_node' | 'triad_core';
   health: number;
   maxHealth: number;
   angle: number;

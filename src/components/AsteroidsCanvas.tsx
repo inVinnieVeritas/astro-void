@@ -2209,7 +2209,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       supply: '🌟 EXOTIC SUPPLY DRONE DETECTED',
       mine: '💣 PROXIMITY MINE DETECTED',
       core_severance: '🚨 CRITICAL MAINFRAME ENCOUNTER DETECTED',
-      shield_node: '🛡️ SHIELD NODE ONLINE'
+      shield_node: '🛡️ SHIELD NODE ONLINE',
+      triad_core: '🚨 TRIAD PROTOCOL PROTO-CORE INBOUND'
     };
 
     addFloatingText(w / 2, 70 + (ufosRef.current.length * 22), typeNames[type], '#ff4444', 16);
