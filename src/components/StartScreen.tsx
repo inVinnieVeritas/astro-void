@@ -82,10 +82,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 
         {/* Main Title - Prominent */}
         <h1 className="text-4xl sm:text-6xl md:text-7xl font-black font-mono tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-[#38bdf8] via-[#a855f7] to-[#ec4899] drop-shadow-[0_0_35px_rgba(56,189,248,0.5)] mb-2">
-          ASTRO SMASH
+          ASTRO VOID
         </h1>
         <p className="text-xs sm:text-sm md:text-base font-mono text-[#8B949E] mb-6 sm:mb-8 tracking-wide">
-          NEON VECTOR SPACE FIGHTER • ALIEN FOES & METEOR SMASH
+          NEON VECTOR SPACE FIGHTER
         </p>
 
         {/* Mode Selector - 3 Modes with Active vs Dimmed Styling */}

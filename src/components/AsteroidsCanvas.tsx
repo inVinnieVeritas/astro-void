@@ -3305,6 +3305,14 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const shieldSpeed = ufo.bossPhase === 2 ? 0.022 : 0.014;
             ufo.shieldAngle = ((ufo.shieldAngle || 0) + shieldSpeed * timeFactor) % (Math.PI * 2);
 
+            // Initialize state if not set
+            if (!ufo.bossState) {
+              ufo.bossState = 'burst';
+              ufo.bossStateTimer = 240;
+            }
+
+            ufo.bossStateTimer -= timeFactor;
+
             // Check Phase 2 transition (HP <= 50%)
             if (ufo.health <= ufo.maxHealth * 0.5 && ufo.bossPhase === 1) {
               ufo.bossPhase = 2;
@@ -3321,12 +3329,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               );
             }
 
-            // Movement handling: Boss stops during Grid Sweep Telegraph, Firing, or Overheat Stun
-            const isStunnedOrBroadcasting = (ufo.gridSweepTelegraph && ufo.gridSweepTelegraph > 0) ||
-                                           (ufo.gridSweepFiring && ufo.gridSweepFiring > 0) ||
-                                           (ufo.overheatTimer && ufo.overheatTimer > 0);
-
-            if (!isStunnedOrBroadcasting) {
+            // Movement handling: Boss moves ONLY in 'burst' state
+            if (ufo.bossState === 'burst') {
               const spd = ufo.bossPhase === 2 ? 3.0 : 1.8;
               ufo.x += ufo.vx * (spd / 1.8) * timeFactor;
               ufo.y = 120 + Math.sin(Date.now() * 0.0025) * 20;
@@ -3341,105 +3345,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               }
             }
 
-            // OVERHEATED VULNERABILITY STATE MANAGEMENT (4 SECONDS STUNNED CORE EXPOSURE)
-            if (ufo.overheatTimer && ufo.overheatTimer > 0) {
-              ufo.overheatTimer -= timeFactor;
-              ufo.shootTimer = 0; // Stunned: Boss does not fire during overheat!
-
-              // Dissipate white-hot thermal energy sparks from core
-              if (Math.random() < 0.6) {
-                particlesRef.current.push({
-                  x: ufo.x + (Math.random() - 0.5) * ufo.radius * 1.2,
-                  y: ufo.y + (Math.random() - 0.5) * ufo.radius * 1.2,
-                  vx: (Math.random() - 0.5) * 4,
-                  vy: (Math.random() - 0.5) * 4,
-                  life: 15,
-                  maxLife: 15,
-                  size: 2.5,
-                  color: '#ffffff',
-                  shape: 'spark'
-                });
-              }
-            } else if (ufo.gridSweepFiring && ufo.gridSweepFiring > 0) {
-              // 1. EXECUTION PHASE (1.5 seconds / 90 frames)
-              ufo.gridSweepFiring--;
-
-              // Impact test against player ship caught in 90-degree vector beam cone!
-              if (ship.alive) {
-                const dx = ship.x - ufo.x;
-                const dy = ship.y - ufo.y;
-                const dist = Math.hypot(dx, dy);
-
-                if (dist > 10) {
-                  const shipAngle = Math.atan2(dy, dx);
-                  let diff = shipAngle - (ufo.gridSweepAngle || Math.PI / 2);
-                  while (diff < -Math.PI) diff += Math.PI * 2;
-                  while (diff > Math.PI) diff -= Math.PI * 2;
-
-                  if (Math.abs(diff) <= Math.PI / 4) { // 45 degrees on each side = 90 degree cone
-                    const isShielded = pTimers.shield > 0 || pTimers.golden > 0 || ship.invincibleTimer > 0;
-                    if (isShielded) {
-                      addFloatingText(ship.x, ship.y - 20, 'GRID SWEEP SHIELDED!', '#00ffcc', 16);
-                    } else {
-                      handlePlayerHit();
-                    }
-                  }
-                }
-              }
-
-              if (ufo.gridSweepFiring <= 0) {
-                ufo.shootTimer = 0; // Reset cooldown
-                ufo.overheatTimer = 240; // Enter Overheated state for 4 seconds (240 frames)!
-                soundEngine.playSound('golden');
-                addShockwave(ufo.x, ufo.y, 220, '#ffffff');
-                addFloatingText(ufo.x, ufo.y - 45, '🔥 BOSS OVERHEATED! CORE EXPOSED!', '#ffffff', 22);
-                triggerBigBanner(
-                  '🔥 BOSS OVERHEATED! 🔥',
-                  'SHIELD DROPPED • CORE EXPOSED FOR 4 SECONDS • ATTACK CORE NOW!',
-                  '#ffffff',
-                  'rgba(255, 255, 255, 0.95)',
-                  110
-                );
-              }
-            } else if (ufo.gridSweepTelegraph && ufo.gridSweepTelegraph > 0) {
-              // 2. TELEGRAPH PHASE (2 seconds / 120 frames)
-              ufo.gridSweepTelegraph++;
-
-              // Gather energy particles at core during telegraph
-              if (Math.random() < 0.7) {
-                particlesRef.current.push({
-                  x: ufo.x + (Math.random() - 0.5) * ufo.radius,
-                  y: ufo.y + (Math.random() - 0.5) * ufo.radius,
-                  vx: (Math.random() - 0.5) * 5,
-                  vy: (Math.random() - 0.5) * 5,
-                  life: 18,
-                  maxLife: 18,
-                  size: 2.5,
-                  color: '#00ffff',
-                  shape: 'spark'
-                });
-              }
-
-              if (ufo.gridSweepTelegraph >= 120) {
-                // Trigger Grid Sweep Vector Beam Firing Phase!
-                ufo.gridSweepTelegraph = 0;
-                ufo.gridSweepFiring = 90; // 1.5 seconds beam duration
-                soundEngine.playSound('heavy_explode');
-                addShockwave(ufo.x, ufo.y, 220, '#00ffff');
-              }
-            } else {
-              // 3. COOLDOWN / NORMAL SHOOTING PHASE
+            // State Machine Logic
+            if (ufo.bossState === 'burst') {
+              // State A: Burst Fire (4 seconds / 240 frames)
               ufo.shootTimer++;
-              const sweepInterval = ufo.bossPhase === 2 ? 180 : 240; // 3-4s interval between sweep attacks
-
-              if (ufo.shootTimer >= sweepInterval && ship.alive) {
-                // Initiate Grid Sweep Telegraph Phase!
-                ufo.gridSweepTelegraph = 1;
-                ufo.gridSweepAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x); // Lock target angle!
-                addFloatingText(ufo.x, ufo.y - 45, '⚠️ WARNING: GRID SWEEP BEAM CHARGING!', '#00ffff', 20);
-                soundEngine.playSound('ufo');
-              } else if (ufo.shootTimer % 70 === 0 && ship.alive) {
-                // Targeted plasma burst fire during movement phase
+              // Fire in controlled bursts: fires for 1 sec (60 frames), pauses for 1 sec (60 frames)
+              const isFiringWindow = (ufo.bossStateTimer % 120) < 60;
+              
+              if (isFiringWindow && ufo.shootTimer >= 15 && ship.alive) {
+                ufo.shootTimer = 0;
                 const baseAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
                 const spreadCount = ufo.bossPhase === 2 ? 5 : 3;
                 const spreadStep = ufo.bossPhase === 2 ? 0.22 : 0.28;
@@ -3462,6 +3376,107 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   });
                 }
                 soundEngine.playSound('ufo');
+              }
+
+              if (ufo.bossStateTimer <= 0) {
+                ufo.bossState = 'laserCharge';
+                ufo.bossStateTimer = 150; // 2.5 seconds
+                ufo.laserTargetAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                addFloatingText(ufo.x, ufo.y - 45, '⚠️ SYSTEM: CHARGING', '#00ffff', 20);
+                soundEngine.playSound('ufo');
+              }
+            } else if (ufo.bossState === 'laserCharge') {
+              // State B: Laser Charge Up (2.5 seconds / 150 frames)
+              // Gather energy particles at core during telegraph
+              if (Math.random() < 0.7) {
+                particlesRef.current.push({
+                  x: ufo.x + (Math.random() - 0.5) * ufo.radius,
+                  y: ufo.y + (Math.random() - 0.5) * ufo.radius,
+                  vx: (Math.random() - 0.5) * 5,
+                  vy: (Math.random() - 0.5) * 5,
+                  life: 18,
+                  maxLife: 18,
+                  size: 2.5,
+                  color: '#00ffff',
+                  shape: 'spark'
+                });
+              }
+
+              // Track player slowly if in phase 2, otherwise fixed
+              if (ufo.bossPhase === 2 && ship.alive) {
+                 const targetAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                 let diff = targetAngle - (ufo.laserTargetAngle || 0);
+                 while (diff < -Math.PI) diff += Math.PI * 2;
+                 while (diff > Math.PI) diff -= Math.PI * 2;
+                 ufo.laserTargetAngle = (ufo.laserTargetAngle || 0) + diff * 0.02 * timeFactor;
+              }
+
+              if (ufo.bossStateTimer <= 0) {
+                ufo.bossState = 'laserFire';
+                ufo.bossStateTimer = 90; // 1.5 seconds
+                soundEngine.playSound('heavy_explode');
+                addShockwave(ufo.x, ufo.y, 220, '#00ffff');
+              }
+            } else if (ufo.bossState === 'laserFire') {
+              // State C: Laser Fire (1.5 seconds / 90 frames)
+              if (ship.alive) {
+                // Vector laser collision check (straight line)
+                const dx = ship.x - ufo.x;
+                const dy = ship.y - ufo.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > 10) {
+                  const shipAngle = Math.atan2(dy, dx);
+                  let diff = shipAngle - (ufo.laserTargetAngle || Math.PI / 2);
+                  while (diff < -Math.PI) diff += Math.PI * 2;
+                  while (diff > Math.PI) diff -= Math.PI * 2;
+
+                  // Thin solid beam, player is destroyed if caught
+                  if (Math.abs(diff) <= 0.06) {
+                    // Boss Immunity to shield ram, player penalty: instant death bypassing shields
+                    ship.alive = false;
+                    pTimers.shield = 0;
+                    pTimers.golden = 0;
+                    ship.hullPower = 0;
+                    handlePlayerHit();
+                  }
+                }
+              }
+
+              if (ufo.bossStateTimer <= 0) {
+                ufo.bossState = 'cooldown';
+                ufo.bossStateTimer = 180; // 3 seconds
+                soundEngine.playSound('golden');
+                addShockwave(ufo.x, ufo.y, 220, '#ffffff');
+                addFloatingText(ufo.x, ufo.y - 45, '🔥 SYSTEM: OVERHEATED - VULNERABLE', '#ffffff', 22);
+                triggerBigBanner(
+                  '🔥 SYSTEM OVERHEATED! 🔥',
+                  'SHIELD DROPPED • CORE EXPOSED FOR 3 SECONDS • 3X DAMAGE!',
+                  '#ffffff',
+                  'rgba(255, 255, 255, 0.95)',
+                  110
+                );
+              }
+            } else if (ufo.bossState === 'cooldown') {
+              // State D: Cooldown / Vulnerability (3 seconds / 180 frames)
+              if (Math.random() < 0.6) {
+                particlesRef.current.push({
+                  x: ufo.x + (Math.random() - 0.5) * ufo.radius * 1.2,
+                  y: ufo.y + (Math.random() - 0.5) * ufo.radius * 1.2,
+                  vx: (Math.random() - 0.5) * 4,
+                  vy: (Math.random() - 0.5) * 4,
+                  life: 15,
+                  maxLife: 15,
+                  size: 2.5,
+                  color: '#ffffff',
+                  shape: 'spark'
+                });
+              }
+
+              if (ufo.bossStateTimer <= 0) {
+                ufo.bossState = 'burst';
+                ufo.bossStateTimer = 240;
+                addFloatingText(ufo.x, ufo.y - 45, '🛡️ SHIELD RESTORED!', '#ff0055', 20);
+                addShockwave(ufo.x, ufo.y, 250, '#ff0055');
               }
             }
           } else if (ufo.type === 'hunter') {
@@ -3582,7 +3597,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           if (ship.alive) {
             const isShielded = pTimers.shield > 0 || pTimers.golden > 0 || ship.invincibleTimer > 0;
             if (Math.hypot(ship.x - ufo.x, ship.y - ufo.y) < ship.radius + ufo.radius) {
-              if (isShielded) {
+              if (ufo.isBoss) {
+                // Boss Immunity: zero damage to boss.
+                // Player Penalty: Instantly destroyed, bypassing any shields
+                ship.alive = false;
+                pTimers.shield = 0;
+                pTimers.golden = 0;
+                ship.hullPower = 0;
+                handlePlayerHit();
+              } else if (isShielded) {
                 soundEngine.playSound('shield_hit');
                 addShockwave(ufo.x, ufo.y, ufo.radius * 2, '#00ffcc');
                 addFloatingText(ufo.x, ufo.y - 30, 'SHIELD RAM UFO!', '#00ffcc', 18);
@@ -3756,13 +3779,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(ufo.x - b.x, ufo.y - b.y);
 
             if (ufo.isBoss) {
-              const isOverheated = (ufo.overheatTimer || 0) > 0;
+              const isOverheated = ufo.bossState === 'cooldown';
 
               if (isOverheated) {
                 // OVERHEATED VULNERABLE PHASE: SHIELD DROPPED & Core Defense Exposed!
                 const hitRadius = ufo.radius + 15;
                 if (dist < hitRadius + b.size) {
-                  const dmg = b.isLaser ? 28 : 12; // Magnified chunk damage!
+                  const dmg = (b.isLaser ? 28 : 12) * 3; // 3x Damage during vulnerability window!
                   ufo.health -= dmg;
                   state.shotsHit++;
                   createBigExplosion(b.x, b.y, '#ffffff');
@@ -4646,87 +4669,59 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
         // Draw Boss Grid Sweep Vector Beam Attack (Telegraph & Execution Phases)
         if (ufo.isBoss) {
-          const sweepAngle = ufo.gridSweepAngle || Math.PI / 2;
-          const startA = sweepAngle - Math.PI / 4;
-          const endA = sweepAngle + Math.PI / 4;
+          const sweepAngle = ufo.laserTargetAngle || Math.PI / 2;
+          const beamDist = 2200;
 
-          // 1. TELEGRAPH PHASE (2 seconds / 120 frames): Thin target sight lines & warning sector
-          if (ufo.gridSweepTelegraph && ufo.gridSweepTelegraph > 0) {
+          // 1. TELEGRAPH PHASE (2.5 seconds / 150 frames): Thin faint target line
+          if (ufo.bossState === 'laserCharge') {
             ctx.save();
-            const beamDist = 2200;
-
-            // Semi-transparent translucent warning cone fill
-            ctx.fillStyle = `rgba(0, 255, 255, ${0.08 + Math.sin(now * 0.02) * 0.06})`;
-            ctx.beginPath();
-            ctx.moveTo(ufo.x, ufo.y);
-            ctx.arc(ufo.x, ufo.y, beamDist, startA, endA);
-            ctx.closePath();
-            ctx.fill();
-
-            // Two thin, bright, pulsing target sight lines defining the 90-degree cone
-            ctx.strokeStyle = `rgba(0, 255, 255, ${0.75 + Math.sin(now * 0.03) * 0.25})`;
-            ctx.shadowBlur = 20;
+            ctx.strokeStyle = `rgba(0, 255, 255, ${0.4 + Math.sin(now * 0.02) * 0.3})`;
+            ctx.shadowBlur = 10;
             ctx.shadowColor = '#00ffff';
-            ctx.lineWidth = 3;
-            ctx.setLineDash([12, 8]);
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([8, 6]);
 
             ctx.beginPath();
             ctx.moveTo(ufo.x, ufo.y);
-            ctx.lineTo(ufo.x + Math.cos(startA) * beamDist, ufo.y + Math.sin(startA) * beamDist);
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(ufo.x, ufo.y);
-            ctx.lineTo(ufo.x + Math.cos(endA) * beamDist, ufo.y + Math.sin(endA) * beamDist);
+            ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
             ctx.stroke();
 
             ctx.setLineDash([]);
             ctx.restore();
           }
 
-          // 2. EXECUTION PHASE (1.5 seconds / 90 frames): Massive solid glowing cyan/crimson vector beam filling 90-degree cone
-          if (ufo.gridSweepFiring && ufo.gridSweepFiring > 0) {
+          // 2. EXECUTION PHASE (1.5 seconds / 90 frames): Massive solid glowing cyan/crimson vector laser
+          if (ufo.bossState === 'laserFire') {
             ctx.save();
-            const beamDist = 2200;
 
-            // Outer Crimson / Cyan Glow Sector
-            ctx.fillStyle = 'rgba(255, 0, 85, 0.55)';
+            // Outer Crimson Glow
+            ctx.strokeStyle = 'rgba(255, 0, 85, 0.55)';
             ctx.shadowColor = '#00ffff';
-            ctx.shadowBlur = 45;
+            ctx.shadowBlur = 40;
+            ctx.lineWidth = 25;
             ctx.beginPath();
             ctx.moveTo(ufo.x, ufo.y);
-            ctx.arc(ufo.x, ufo.y, beamDist, startA, endA);
-            ctx.closePath();
-            ctx.fill();
+            ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
+            ctx.stroke();
 
-            // Middle Dense Cyan Wave Sector
-            ctx.fillStyle = 'rgba(0, 255, 255, 0.82)';
+            // Middle Dense Cyan Wave
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.82)';
             ctx.shadowColor = '#ff0055';
-            ctx.shadowBlur = 30;
+            ctx.shadowBlur = 20;
+            ctx.lineWidth = 14;
             ctx.beginPath();
             ctx.moveTo(ufo.x, ufo.y);
-            ctx.arc(ufo.x, ufo.y, beamDist - 100, startA + 0.02, endA - 0.02);
-            ctx.closePath();
-            ctx.fill();
+            ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
+            ctx.stroke();
 
-            // Core Solid White Vector Energy Fill
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+            // Core Solid White Vector Energy
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
+            ctx.lineWidth = 6;
             ctx.beginPath();
             ctx.moveTo(ufo.x, ufo.y);
-            ctx.arc(ufo.x, ufo.y, beamDist - 200, startA + 0.06, endA - 0.06);
-            ctx.closePath();
-            ctx.fill();
+            ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
+            ctx.stroke();
 
-            // Concentric Vector Grid Sweep Shock Rings across beam
-            ctx.strokeStyle = '#00ffff';
-            ctx.lineWidth = 3.5;
-            ctx.shadowColor = '#00ffff';
-            ctx.shadowBlur = 15;
-            for (let r = 250; r <= beamDist; r += 250) {
-              ctx.beginPath();
-              ctx.arc(ufo.x, ufo.y, r, startA, endA);
-              ctx.stroke();
-            }
             ctx.restore();
           }
         }
@@ -6032,7 +6027,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         const barX = (width - barW) / 2;
         const barY = 32;
 
-        const isOverheated = (activeBoss.overheatTimer || 0) > 0;
+        const isOverheated = activeBoss.bossState === 'cooldown';
 
         // Container Panel Frame
         ctx.fillStyle = 'rgba(6, 9, 20, 0.94)';
@@ -6088,8 +6083,19 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         ctx.fillText(`${Math.ceil(hpRatio * 100)}% • ${Math.ceil(activeBoss.health)} / ${activeBoss.maxHealth} HP`, width / 2, barY + 7);
 
         // STATUS BADGE BELOW HEALTH BAR
-        const statusText = isOverheated ? '🔥 STATUS: OVERHEATED - ATTACK CORE 🔥' : '🛡️ STATUS: SHIELDED';
-        const statusColor = isOverheated ? '#ffff00' : '#00ffff';
+        let statusText = '🛡️ STATUS: SHIELDED';
+        let statusColor = '#00ffff';
+        
+        if (activeBoss.bossState === 'cooldown') {
+           statusText = '🔥 SYSTEM: OVERHEATED - VULNERABLE 🔥';
+           statusColor = '#ffff00';
+        } else if (activeBoss.bossState === 'laserCharge') {
+           statusText = '⚠️ SYSTEM: CHARGING ⚠️';
+           statusColor = '#00ffff';
+        } else if (activeBoss.bossState === 'laserFire') {
+           statusText = '💥 SYSTEM: FIRING LASER 💥';
+           statusColor = '#ff0055';
+        }
 
         ctx.font = 'bold 11px font-mono, sans-serif';
         ctx.textAlign = 'center';
