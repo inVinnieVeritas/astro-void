@@ -1,0 +1,6 @@
+{
+  "name": "Astro Smash Arcade",
+  "description": "A high-octane retro arcade Astro Smash game with CRT visual FX, multiple alien foes, UFO boss battles, extra ships, EMP bombs, time warp, supernova nukes, and dynamic synth audio.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
