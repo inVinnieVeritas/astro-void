@@ -26,6 +26,7 @@ interface HUDProps {
   isPaused: boolean;
   isMuted: boolean;
   isShipNearHUD?: boolean;
+  isTouchDevice?: boolean;
   onTogglePause: () => void;
   onToggleMute: () => void;
   onOpenSettings: () => void;
@@ -50,6 +51,7 @@ export const HUD: React.FC<HUDProps> = ({
   isPaused,
   isMuted,
   isShipNearHUD = false,
+  isTouchDevice = false,
   onTogglePause,
   onToggleMute,
   onOpenSettings,
@@ -311,123 +313,119 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       </div>
 
-      {/* Bottom Bar: EMP Bomb & Hyperspace Cooldown Prominent Cards */}
-      <div className="flex justify-between items-end flex-wrap gap-3">
-        {/* EMP & Hyperspace status cards */}
-        <div className="flex flex-col sm:flex-row gap-2.5 pointer-events-auto">
-          {/* EMP Bomb Card */}
-          <div
-            onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }))}
-            className={`flex flex-col gap-1.5 bg-[#0D1117]/95 backdrop-blur-md border rounded-xl p-2.5 min-w-[200px] transition-all cursor-pointer shadow-lg hover:scale-[1.02] active:scale-[0.98] ${
-              empCount > 0
-                ? 'border-[#D29922] shadow-[0_0_12px_rgba(210,153,34,0.25)]'
-                : 'border-[#30363D]'
-            }`}
-            title="Click or Press [E] to trigger EMP Shockwave. Clears all bullets & breaks nearby asteroids."
-          >
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-2">
-                <div className={`p-1.5 rounded-lg ${empCount > 0 ? 'bg-[#D29922]/20 text-[#D29922]' : 'bg-[#21262D] text-[#8B949E]'}`}>
-                  <Bomb className="w-4 h-4" />
+      {/* Bottom Bar: EMP Bomb & Hyperspace Status Overlay */}
+      <div className="flex justify-between items-end flex-wrap gap-2">
+        {/* EMP & Hyperspace status cards (Desktop Only - Mobile uses TouchControls action buttons) */}
+        {!isTouchDevice && (
+          <div className="flex flex-row gap-2 pointer-events-auto">
+            {/* EMP Bomb Card */}
+            <div
+              onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }))}
+              className={`flex flex-col gap-1 bg-[#0D1117]/90 backdrop-blur-md border rounded-lg p-2 min-w-[140px] sm:min-w-[170px] transition-all cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98] ${
+                empCount > 0
+                  ? 'border-[#D29922]/80 shadow-[0_0_8px_rgba(210,153,34,0.2)]'
+                  : 'border-[#30363D]'
+              }`}
+              title="Click or Press [E] to trigger EMP Shockwave."
+            >
+              <div className="flex items-center gap-1.5">
+                <div className={`p-1 rounded ${empCount > 0 ? 'bg-[#D29922]/20 text-[#D29922]' : 'bg-[#21262D] text-[#8B949E]'}`}>
+                  <Bomb className="w-3.5 h-3.5" />
                 </div>
-                <div>
-                  <div className="text-[11px] font-mono font-bold text-[#E6EDF3] flex items-center gap-1.5">
-                    <span>EMP BOMB</span>
-                    <span className="bg-[#D29922]/20 text-[#D29922] text-[9px] px-1 py-0.2 rounded border border-[#D29922]/40 font-mono">KEY [E] / [B]</span>
+                <div className="text-[10px] font-mono font-bold text-[#E6EDF3] flex items-center gap-1">
+                  <span>EMP BOMB</span>
+                  <span className="bg-[#D29922]/20 text-[#D29922] text-[8px] px-1 py-0.2 rounded border border-[#D29922]/40 font-mono">[E]/[B]</span>
+                </div>
+              </div>
+
+              {/* Charge Indicators & Progress */}
+              <div className="mt-0.5">
+                <div className="flex justify-between items-center text-[9px] font-mono mb-0.5">
+                  <div className="flex gap-0.5 items-center">
+                    {[1, 2, 3].map((slot) => (
+                      <span
+                        key={slot}
+                        className={`text-[10px] ${
+                          slot <= empCount ? 'text-[#D29922]' : 'text-[#30363D]'
+                        }`}
+                      >
+                        ⚡
+                      </span>
+                    ))}
+                    <span className="text-[#E6EDF3] font-bold ml-1 text-[10px]">{empCount}/3</span>
                   </div>
-                  <div className="text-[9px] font-mono text-[#8B949E]">Clears bullets & asteroids</div>
+                  <span className="text-[#8B949E] text-[8px]">
+                    {empCount >= 3 ? 'MAX' : `${Math.ceil((1 - empRechargeProgress) * 60)}s`}
+                  </span>
+                </div>
+
+                {/* Recharge fill bar */}
+                <div className="w-full bg-[#161B22] border border-[#30363D] h-1.5 rounded-full overflow-hidden p-[1px]">
+                  <div
+                    className={`h-full rounded-full transition-all duration-150 ${
+                      empCount >= 3
+                        ? 'bg-[#D29922]'
+                        : 'bg-gradient-to-r from-[#388BFD] to-[#D29922] animate-pulse'
+                    }`}
+                    style={{ width: empCount >= 3 ? '100%' : `${Math.round(empRechargeProgress * 100)}%` }}
+                  />
                 </div>
               </div>
             </div>
 
-            {/* Charge Indicators & Auto-Recharge Progress Bar */}
-            <div className="mt-0.5">
-              <div className="flex justify-between items-center text-[10px] font-mono mb-1">
-                <div className="flex gap-1 items-center">
-                  {[1, 2, 3].map((slot) => (
-                    <span
-                      key={slot}
-                      className={`text-xs ${
-                        slot <= empCount ? 'text-[#D29922] filter drop-shadow-[0_0_4px_#D29922]' : 'text-[#30363D]'
-                      }`}
-                    >
-                      ⚡
-                    </span>
-                  ))}
-                  <span className="text-[#E6EDF3] font-bold ml-1 text-[11px]">{empCount} / 3</span>
+            {/* Hyperspace Warp Status Card */}
+            <div
+              onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }))}
+              className={`flex flex-col gap-1 bg-[#0D1117]/90 backdrop-blur-md border rounded-lg p-2 min-w-[140px] sm:min-w-[170px] transition-all cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98] ${
+                hyperspaceCooldown <= 0
+                  ? 'border-[#58A6FF]/80 shadow-[0_0_8px_rgba(88,166,255,0.2)]'
+                  : 'border-[#30363D]'
+              }`}
+              title="Click or Press [R] to teleport to a safe random location."
+            >
+              <div className="flex items-center gap-1.5">
+                <div className={`p-1 rounded ${hyperspaceCooldown <= 0 ? 'bg-[#58A6FF]/20 text-[#58A6FF]' : 'bg-[#21262D] text-[#8B949E]'}`}>
+                  <Zap className="w-3.5 h-3.5" />
                 </div>
-                <span className="text-[#8B949E] text-[9px]">
-                  {empCount >= 3 ? 'MAX CHARGED' : `Recharging (${Math.ceil((1 - empRechargeProgress) * 60)}s)`}
-                </span>
+                <div className="text-[10px] font-mono font-bold text-[#E6EDF3] flex items-center gap-1">
+                  <span>HYPERWARP</span>
+                  <span className="bg-[#58A6FF]/20 text-[#58A6FF] text-[8px] px-1 py-0.2 rounded border border-[#58A6FF]/40 font-mono">[R]/SHIFT</span>
+                </div>
               </div>
 
-              {/* Recharge fill bar */}
-              <div className="w-full bg-[#161B22] border border-[#30363D] h-2 rounded-full overflow-hidden p-[1px]">
-                <div
-                  className={`h-full rounded-full transition-all duration-150 ${
-                    empCount >= 3
-                      ? 'bg-[#D29922]'
-                      : 'bg-gradient-to-r from-[#388BFD] to-[#D29922] animate-pulse'
-                  }`}
-                  style={{ width: empCount >= 3 ? '100%' : `${Math.round(empRechargeProgress * 100)}%` }}
-                />
+              {/* Cooldown progress bar */}
+              <div className="mt-0.5">
+                <div className="flex justify-between items-center text-[9px] font-mono mb-0.5">
+                  <span className="text-[#8B949E]">STATUS</span>
+                  <span className={`font-bold ${hyperspaceCooldown <= 0 ? 'text-[#58A6FF]' : 'text-[#8B949E]'}`}>
+                    {hyperspaceCooldown <= 0 ? 'READY' : `${(hyperspaceCooldown / 60).toFixed(1)}s`}
+                  </span>
+                </div>
+                <div className="w-full bg-[#161B22] border border-[#30363D] h-1.5 rounded-full overflow-hidden p-[1px]">
+                  <div
+                    className={`h-full rounded-full transition-all duration-100 ${
+                      hyperspaceCooldown <= 0 ? 'bg-[#58A6FF]' : 'bg-[#30363D]'
+                    }`}
+                    style={{
+                      width: hyperspaceCooldown <= 0 ? '100%' : `${Math.round(((300 - hyperspaceCooldown) / 300) * 100)}%`
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Hyperspace Warp Status Card */}
-          <div
-            onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }))}
-            className={`flex flex-col gap-1.5 bg-[#0D1117]/95 backdrop-blur-md border rounded-xl p-2.5 min-w-[200px] transition-all cursor-pointer shadow-lg hover:scale-[1.02] active:scale-[0.98] ${
-              hyperspaceCooldown <= 0
-                ? 'border-[#58A6FF] shadow-[0_0_12px_rgba(88,166,255,0.25)]'
-                : 'border-[#30363D]'
-            }`}
-            title="Click or Press [R] to teleport to a safe random location."
-          >
-            <div className="flex items-center gap-2">
-              <div className={`p-1.5 rounded-lg ${hyperspaceCooldown <= 0 ? 'bg-[#58A6FF]/20 text-[#58A6FF]' : 'bg-[#21262D] text-[#8B949E]'}`}>
-                <Zap className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-[11px] font-mono font-bold text-[#E6EDF3] flex items-center gap-1.5">
-                  <span>HYPERSPACE WARP</span>
-                  <span className="bg-[#58A6FF]/20 text-[#58A6FF] text-[9px] px-1 py-0.2 rounded border border-[#58A6FF]/40 font-mono">KEY [R] / SHIFT</span>
-                </div>
-                <div className="text-[9px] font-mono text-[#8B949E]">Emergency Teleport</div>
-              </div>
-            </div>
-
-            {/* Cooldown progress bar */}
-            <div className="mt-0.5">
-              <div className="flex justify-between items-center text-[10px] font-mono mb-1">
-                <span className="text-[#8B949E]">STATUS</span>
-                <span className={`font-bold ${hyperspaceCooldown <= 0 ? 'text-[#58A6FF] animate-pulse' : 'text-[#8B949E]'}`}>
-                  {hyperspaceCooldown <= 0 ? 'READY TO WARP' : `COOLDOWN (${(hyperspaceCooldown / 60).toFixed(1)}s)`}
-                </span>
-              </div>
-              <div className="w-full bg-[#161B22] border border-[#30363D] h-2 rounded-full overflow-hidden p-[1px]">
-                <div
-                  className={`h-full rounded-full transition-all duration-100 ${
-                    hyperspaceCooldown <= 0 ? 'bg-[#58A6FF]' : 'bg-[#30363D]'
-                  }`}
-                  style={{
-                    width: hyperspaceCooldown <= 0 ? '100%' : `${Math.round(((300 - hyperspaceCooldown) / 300) * 100)}%`
-                  }}
-                />
-              </div>
-            </div>
+        {/* Compact Desktop Controls Guide */}
+        {!isTouchDevice && (
+          <div className="hidden lg:block text-right bg-[#0D1117]/80 backdrop-blur-sm border border-[#30363D] rounded-lg px-2.5 py-1.5 text-[9.5px] font-mono text-[#8B949E] shadow-sm">
+            <span className="text-[#E6EDF3] font-bold mr-2">🚀 CONTROLS:</span>
+            <span className="mr-2">• <span className="text-[#38BDF8]">Move</span> WASD/Arrows</span>
+            <span className="mr-2">• <span className="text-[#3FB950]">Fire</span> Space/Click</span>
+            <span className="mr-2">• <span className="text-[#D29922]">EMP</span> B/E</span>
+            <span>• <span className="text-[#58A6FF]">Warp</span> Shift/R</span>
           </div>
-        </div>
-
-        {/* Desktop Controls & 1UP Milestone Info */}
-        <div className="hidden lg:block text-right bg-[#0D1117]/80 backdrop-blur-sm border border-[#30363D] rounded-xl p-2.5 text-[10px] font-mono text-[#8B949E] max-w-xs shadow-md">
-          <div className="text-[#E6EDF3] font-bold mb-0.5 text-[11px]">🚀 STARFIGHTER TACTICS</div>
-          <div>• <span className="text-[#38BDF8]">FIRE GUN [SPACE / Click]</span> primary weapons.</div>
-          <div>• <span className="text-[#D29922]">EMP BOMB [B]</span> shockwave clears bullets (+1/60s).</div>
-          <div>• <span className="text-[#58A6FF]">WARP [Shift]</span> emergency teleport jump.</div>
-          <div>• <span className="text-[#3FB950]">SOUND [M]</span> toggle audio on/off anytime.</div>
-        </div>
+        )}
       </div>
     </div>
   );

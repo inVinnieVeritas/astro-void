@@ -186,6 +186,7 @@ function getRedHexagonInnerSprite(): HTMLCanvasElement {
 }
 
 interface AsteroidsCanvasProps {
+  isTouchDevice?: boolean;
   gameMode: GameMode;
   initialWave?: number;
   controlScheme: ControlScheme;
@@ -207,6 +208,7 @@ interface AsteroidsCanvasProps {
 }
 
 export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
+  isTouchDevice,
   // Note: Fullscreen integration logic (Browser Fullscreen API toggle)
   // is managed at the App.tsx root and passed down to HUD/StartScreen
   // to avoid re-rendering and stealing focus from this canvas component.
@@ -272,7 +274,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   // State refs for animation loop
   const gameStateRef = useRef({
     score: 0,
-    nextExtraLifeScore: 50000,
+    nextExtraLifeScore: 100000,
     wave: initialWave || (gameMode === 'boss_rush' ? 5 : 1),
     lives: gameMode === 'zen' ? 99 : 3,
     empCount: 1,
@@ -280,6 +282,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     gameRunning: true,
     mousePos: { x: 0, y: 0 },
     keys: {} as Record<string, boolean>,
+    touchJoystick: { active: false, angle: 0, distance: 0 },
     touchThrust: false,
     touchReverse: false,
     touchLeft: false,
@@ -295,6 +298,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     ufosDestroyed: 0,
     empUsed: 0,
     bossDamageDealt: 0,
+    bossMinesDestroyed: 0,
     consecutiveHits: 0
   });
 
@@ -694,7 +698,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     callbacksRef.current.onScoreUpdate(state.score);
 
     if (!state.nextExtraLifeScore) {
-      state.nextExtraLifeScore = 50000;
+      state.nextExtraLifeScore = 100000;
     }
 
     while (state.score >= state.nextExtraLifeScore) {
@@ -716,7 +720,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         addShockwave(ship.x, ship.y, 160, '#00ff88');
       }
 
-      state.nextExtraLifeScore += 50000;
+      state.nextExtraLifeScore += 100000;
     }
   }, [triggerBigBanner]);
 
@@ -1233,12 +1237,12 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             200
          );
       } else {
-         const bossHp = isCoreSeverance ? 2500 + Math.floor(waveNum / 10) * 800 : 1500 + Math.floor(waveNum / 5) * 500;
+         const bossHp = isCoreSeverance ? 2500 + Math.floor(waveNum / 10) * 800 : 2500 + Math.floor(waveNum / 5) * 850;
          
          const boss: UFO = {
             id: 'boss-' + Math.random(),
             x: safeX + (Math.random() - 0.5) * 60,
-            y: isCoreSeverance ? h * 0.3 : 130, // Safely in the upper part of the screen
+            y: isCoreSeverance ? h * 0.35 : Math.max(h * 0.35, 320), // Safely below top UI elements
             vx: isCoreSeverance ? 1.0 : 1.8,
             vy: 0,
             radius: isCoreSeverance ? 90 : 110,
@@ -1470,14 +1474,24 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   };
 
   // Explosions
-  const createSmallExplosion = (x: number, y: number, colorOverride?: string) => {
-    soundEngine.playSound('explode');
+  const createSmallExplosion = useCallback((x: number, y: number, colorOverride?: string) => {
+    // Throttle: don't play sound every frame if overloaded
+    const isDreadnoughtActive = ufosRef.current.some(u => u.type === 'dreadnought');
+    if (!isDreadnoughtActive || particlesRef.current.length < 250) {
+      soundEngine.playSound('explode');
+    }
+    
     if (screenShakeEnabled) {
       gameStateRef.current.shakeTimer = 8;
       gameStateRef.current.shakeIntensity = 3;
     }
+    
+    let particleCount = 15;
+    if (isDreadnoughtActive) {
+      particleCount = particlesRef.current.length > 300 ? 3 : particlesRef.current.length > 150 ? 6 : 15;
+    }
 
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < particleCount; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 2 + Math.random() * 5.5;
       particlesRef.current.push({
@@ -1491,17 +1505,23 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         color: colorOverride || (Math.random() > 0.4 ? '#ffcc44' : '#ffffff')
       });
     }
-  };
+  }, [screenShakeEnabled]);
 
-  const createBigExplosion = (x: number, y: number, colorOverride?: string) => {
+  const createBigExplosion = useCallback((x: number, y: number, colorOverride?: string) => {
     soundEngine.playSound('heavy_explode');
     if (screenShakeEnabled) {
       gameStateRef.current.shakeTimer = 22;
       gameStateRef.current.shakeIntensity = 12;
     }
     addShockwave(x, y, 140, colorOverride || '#ff4400');
+    
+    const isDreadnoughtActive = ufosRef.current.some(u => u.type === 'dreadnought');
+    let particleCount = 45;
+    if (isDreadnoughtActive) {
+      particleCount = particlesRef.current.length > 300 ? 15 : particlesRef.current.length > 150 ? 25 : 45;
+    }
 
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < particleCount; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 3 + Math.random() * 16;
       const colorRoll = Math.random();
@@ -1511,7 +1531,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         else if (colorRoll > 0.4) color = '#ff5500';
         else if (colorRoll > 0.2) color = '#ffffff';
       }
-
       particlesRef.current.push({
         x,
         y,
@@ -1523,7 +1542,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         color
       });
     }
-  };
+  }, [screenShakeEnabled, addShockwave]);
 
   // Collectible Pickups
   const spawnCollectible = useCallback((x: number, y: number, type: Collectible['type']) => {
@@ -1563,10 +1582,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     if (isBossDeath) {
       soundEngine.playSound('heavy_explode');
       createBigExplosion(ufo.x, ufo.y, '#ff0055');
-      createBigExplosion(ufo.x - 50, ufo.y + 20, '#a855f7');
-      createBigExplosion(ufo.x + 50, ufo.y - 20, '#00ffff');
       addShockwave(ufo.x, ufo.y, 400, '#ff0055');
-      addShockwave(ufo.x, ufo.y, 280, '#00ffff');
       
       callbacksRef.current.onUnlockAchievement('boss_slayer');
 
@@ -1580,8 +1596,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         spawnCollectible(cx, cy, dropType);
       });
 
-      addFloatingText(ufo.x, ufo.y - 30, `+${points} BOSS DESTROYED!`, '#ff0055', 28);
-      addFloatingText(ufo.x, ufo.y + 15, '🎁 EXOTIC POWERUP CACHE UNLOCKED!', '#ffd700', 18);
+      addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `+${points} BOSS DESTROYED!`, '#ff0055', 28);
+      addFloatingText(ufo.x, ufo.y + ufo.radius + 40, '🎁 EXOTIC POWERUP CACHE UNLOCKED!', '#ffd700', 18);
 
       triggerBigBanner(
         '💥 BOSS DESTROYED! 💥',
@@ -1613,8 +1629,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       } else if (ufo.type === 'dreadnought') {
         const drop = Math.random() < 0.5 ? 'nuke' : 'timewarp';
         spawnCollectible(ufo.x, ufo.y, drop);
-        addFloatingText(ufo.x, ufo.y - 25, `+${points} DREADNOUGHT DESTROYED!`, '#e11d48', 24);
-        addFloatingText(ufo.x, ufo.y + 12, 'EXOTIC POWERUP DROPPED!', '#ffd700', 16);
+        addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `+${points} DREADNOUGHT DESTROYED!`, '#e11d48', 24);
+        addFloatingText(ufo.x, ufo.y + ufo.radius + 40, 'EXOTIC POWERUP DROPPED!', '#ffd700', 16);
       } else if (ufo.type === 'mothership') {
         const drop = Math.random() < 0.5 ? 'repulsor' : 'golden';
         spawnCollectible(ufo.x, ufo.y, drop);
@@ -1934,7 +1950,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     for (let ui = ufosRef.current.length - 1; ui >= 0; ui--) {
       const u = ufosRef.current[ui];
       if (u.isBoss) {
-        addFloatingText(u.x, u.y - 45, '⚠️ BOSS EMP IMMUNE!', '#ff0055', 20);
+        addFloatingText(u.x, u.y + u.radius + 20, '⚠️ BOSS EMP IMMUNE!', '#ff0055', 20);
         addShockwave(u.x, u.y, 110, '#ff0055');
         soundEngine.playSound('shield_hit');
         continue;
@@ -2170,20 +2186,32 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       }
     } else {
       const spawnY = 100 + Math.random() * (h - 200);
-      const spawnX = fromLeft ? -60 : w + 60;
+      const spawnX = fromLeft ? -100 - Math.random() * 150 : w + 100 + Math.random() * 150;
+      
+      let initialVx = fromLeft ? speed : -speed;
+      let initialVy = (Math.random() - 0.5) * 0.8;
+      let initialAngle = 0;
+
+      if (type === 'hunter' && shipRef.current?.alive) {
+        const tAngle = Math.atan2(shipRef.current.y - spawnY, shipRef.current.x - spawnX);
+        initialAngle = tAngle;
+        initialVx = Math.cos(tAngle) * speed * 1.5;
+        initialVy = Math.sin(tAngle) * speed * 1.5;
+      }
+
       const newUfo: UFO = {
         id: Math.random().toString(),
         x: spawnX,
         y: spawnY,
-        vx: fromLeft ? speed : -speed,
-        vy: (Math.random() - 0.5) * 0.8,
+        vx: initialVx,
+        vy: initialVy,
         radius,
         speed: fromLeft ? speed : -speed,
         shootTimer: 0,
         type,
         health,
         maxHealth: health,
-        angle: 0,
+        angle: initialAngle,
         chargeTimer: 0,
         isChargingBeam: false,
         behaviorTimer: 0,
@@ -2350,8 +2378,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     };
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (controlScheme === 'mouse' && e.button === 0) {
+      if (controlScheme === 'mouse' && e.button === 0 && !isTouchDevice) {
         fireWeapon();
+      }
+    };
+
+    const handleJoystick = (e: Event) => {
+      const customEvt = e as CustomEvent;
+      if (customEvt.detail) {
+        gameStateRef.current.touchJoystick = customEvt.detail;
       }
     };
 
@@ -2359,12 +2394,14 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('asteroids:joystick', handleJoystick);
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('asteroids:joystick', handleJoystick);
     };
   }, [controlScheme, triggerEmp, triggerHyperspace, fireWeapon]);
 
@@ -2588,7 +2625,28 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             }
           }
 
-          if (controlScheme === 'classic') {
+          const joystick = state.touchJoystick;
+          if (isTouchDevice && joystick && joystick.active) {
+            // Virtual Joystick Steering
+            const targetAngle = joystick.angle;
+            let diff = targetAngle - ship.angle;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+
+            const turnSpeed = 0.16;
+            if (Math.abs(diff) < turnSpeed) {
+              ship.angle = targetAngle;
+            } else {
+              ship.angle += Math.sign(diff) * turnSpeed;
+            }
+
+            // Virtual Joystick Thrusting
+            if (joystick.distance > 0.22) {
+              state.touchThrust = true;
+            } else {
+              state.touchThrust = false;
+            }
+          } else if (controlScheme === 'classic' || isTouchDevice) {
             // Turning - smoothed rotation speed for better maneuvering
             if (state.keys['ArrowLeft'] || state.keys['a'] || state.keys['A'] || state.touchLeft) {
               ship.rotation = -0.055;
@@ -2598,7 +2656,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               ship.rotation = 0;
             }
             ship.angle += ship.rotation;
-          } else if (controlScheme === 'mouse') {
+          } else if (controlScheme === 'mouse' && !isTouchDevice) {
             // Mouse Aiming
             const dx = state.mousePos.x - ship.x;
             const dy = state.mousePos.y - ship.y;
@@ -2760,6 +2818,19 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 createSmallExplosion(ub.x, ub.y, '#ffaa00');
                 soundEngine.playSound('explode');
                 addFloatingText(ub.x, ub.y - 12, 'INTERCEPT!', '#00ffcc', 12);
+                
+                if (ub.isMine) {
+                  gameStateRef.current.bossMinesDestroyed++;
+                  
+                  if (gameStateRef.current.bossMinesDestroyed === 3) {
+                     spawnCollectible(ub.x, ub.y, 'shield');
+                     addFloatingText(ub.x, ub.y - 25, 'MINE DROP!', '#ffaa00', 16);
+                  } else if (gameStateRef.current.bossMinesDestroyed === 5) {
+                     spawnCollectible(ub.x, ub.y, 'laser');
+                     addFloatingText(ub.x, ub.y - 25, 'MINE DROP!', '#ffaa00', 16);
+                  }
+                }
+                
                 ufoBulletsRef.current.splice(ubi, 1);
                 intercepted = true;
               }
@@ -3290,7 +3361,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 }
                 break;
               } else {
-                addFloatingText(b.x, b.y - 12, `-${dmg} HP`, '#ff00ff', 13);
+                addFloatingText(b.x, b.y - 12, `-${Math.floor(dmg)} HP`, '#ff00ff', 13);
               }
             }
           }
@@ -3511,7 +3582,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   }
                   return true;
                 } else {
-                  addFloatingText(b.x, b.y - 12, `-${dmg} HP`, c.color, 13);
+                  addFloatingText(b.x, b.y - 12, `-${Math.floor(dmg)} HP`, c.color, 13);
                 }
               }
               return false;
@@ -3581,7 +3652,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 ufosRef.current.push(minion);
               }
               soundEngine.playSound('ufo');
-              addFloatingText(ufo.x, ufo.y - 45, '🛸 BOSS DEPLOYED MINIONS!', '#ff0055', 18);
+              addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '🛸 BOSS DEPLOYED MINIONS!', '#ff0055', 18);
             }
 
             // Overheat Reward: when boss enters cooldown state, automatically drop 1 power-up near its position
@@ -3591,7 +3662,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 const dropTypes: Collectible['type'][] = ['shield', 'triple', 'laser', 'emp', 'timewarp', 'repulsor', 'drone', 'golden'];
                 const picked = dropTypes[Math.floor(Math.random() * dropTypes.length)];
                 spawnCollectible(ufo.x, ufo.y, picked);
-                addFloatingText(ufo.x, ufo.y - 30, '🎁 OVERHEAT POWERUP CACHE DROPPED!', '#ffd700', 18);
+                addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '🎁 OVERHEAT POWERUP CACHE DROPPED!', '#ffd700', 18);
                 soundEngine.playSound('golden');
               }
             } else {
@@ -3759,7 +3830,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               ufo.speed = 3.2;
               addShockwave(ufo.x, ufo.y, 250, '#ff0055');
               soundEngine.playSound('heavy_explode');
-              addFloatingText(ufo.x, ufo.y - 35, '⚠️ PHASE 2 OVERDRIVE AGGRESSIVE MODE!', '#ff0055', 24);
+              addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '⚠️ PHASE 2 OVERDRIVE AGGRESSIVE MODE!', '#ff0055', 24);
               triggerBigBanner(
                 '⚠️ BOSS ENTERED PHASE 2! ⚠️',
                 'DIRECTIONAL ROTATING SHIELD & SWARMERS DEPLOYED',
@@ -3775,7 +3846,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             if (ufo.bossState === 'burst') {
               const spd = ufo.bossPhase === 2 ? 3.0 : 1.8;
               ufo.x += ufo.vx * (spd / 1.8) * timeFactor;
-              ufo.y = 120 + Math.sin(Date.now() * 0.0025) * 20;
+              ufo.y = Math.max((canvasRef.current?.height || window.innerHeight) * 0.35, 320) + Math.sin(Date.now() * 0.0025) * 20;
 
               const w = canvasRef.current?.width || window.innerWidth;
               const minSafeX = Math.max(ufo.radius + 40, 320); // Keep away from left HUD
@@ -3823,13 +3894,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
               if (ufo.bossStateTimer <= 0) {
                 ufo.bossState = 'laserCharge';
-                ufo.bossStateTimer = 150; // 2.5 seconds
+                ufo.bossStateTimer = 300; // 5.0 seconds
                 ufo.laserTargetAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
-                addFloatingText(ufo.x, ufo.y - 45, '⚠️ SYSTEM: CHARGING', '#00ffff', 20);
+                addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '⚠️ SYSTEM: CHARGING', '#00ffff', 20);
                 soundEngine.playSound('ufo');
               }
             } else if (ufo.bossState === 'laserCharge') {
-              // State B: Laser Charge Up (2.5 seconds / 150 frames)
+              // State B: Laser Charge Up (5.0 seconds / 300 frames)
               // Gather energy particles at core during telegraph
               if (Math.random() < 0.7) {
                 particlesRef.current.push({
@@ -3900,7 +3971,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 ufo.bossStateTimer = 360; // 6.0 seconds
                 soundEngine.playSound('golden');
                 addShockwave(ufo.x, ufo.y, 220, '#ffffff');
-                addFloatingText(ufo.x, ufo.y - 45, '🔥 SYSTEM: OVERHEATED - VULNERABLE', '#ffffff', 22);
+                addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '🔥 SYSTEM: OVERHEATED - VULNERABLE', '#ffffff', 22);
                 triggerBigBanner(
                   '🔥 SYSTEM OVERHEATED! 🔥',
                   'SHIELD DROPPED • CORE EXPOSED FOR 6.0 SECONDS • 3X DAMAGE!',
@@ -3933,7 +4004,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               if (ufo.bossStateTimer <= 0) {
                 ufo.bossState = Math.random() < 0.5 ? 'burst' : 'mines';
                 ufo.bossStateTimer = 240;
-                addFloatingText(ufo.x, ufo.y - 45, '🛡️ SHIELD RESTORED!', '#ff0055', 20);
+                addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '🛡️ SHIELD RESTORED!', '#ff0055', 20);
                 addShockwave(ufo.x, ufo.y, 250, '#ff0055');
               }
             } else if (ufo.bossState === 'mines') {
@@ -3960,14 +4031,14 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                     isMine: true
                 });
                 soundEngine.playSound('ufo');
-                addFloatingText(ufo.x, ufo.y - 45, '💣 PROXIMITY MINE DEPLOYED', '#ffaa00', 14);
+                addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '💣 PROXIMITY MINE DEPLOYED', '#ffaa00', 14);
               }
 
               if (ufo.bossStateTimer <= 0) {
                 ufo.bossState = 'laserCharge';
-                ufo.bossStateTimer = 150; // 2.5 seconds
+                ufo.bossStateTimer = 300; // 5.0 seconds
                 ufo.laserTargetAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
-                addFloatingText(ufo.x, ufo.y - 45, '⚠️ SYSTEM: CHARGING', '#00ffff', 20);
+                addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '⚠️ SYSTEM: CHARGING', '#00ffff', 20);
                 soundEngine.playSound('ufo');
               }
             }
@@ -4056,11 +4127,11 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   });
                 }
               } else {
-                ufo.vx += Math.cos(ufo.angle) * 0.08 * timeFactor;
-                ufo.vy += Math.sin(ufo.angle) * 0.08 * timeFactor;
+                ufo.vx += Math.cos(ufo.angle) * 0.25 * timeFactor;
+                ufo.vy += Math.sin(ufo.angle) * 0.25 * timeFactor;
               }
 
-              const maxSpd = ufo.isBursting ? 5.2 : 2.4;
+              const maxSpd = ufo.isBursting ? 5.2 : 3.2;
               const curSpd = Math.hypot(ufo.vx, ufo.vy);
               if (curSpd > maxSpd) {
                 ufo.vx = (ufo.vx / curSpd) * maxSpd;
@@ -4215,7 +4286,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 soundEngine.playSound('ufo');
                 ufo.shootTimer = 0;
               }
-            } else if (ufo.type === 'dreadnought') {
+            } else if (ufo.type === 'dreadnought' && !ufo.isBoss) {
               // Dreadnought Death Beam Charge
               ufo.chargeTimer = (ufo.chargeTimer || 0) + 1;
               if (ufo.chargeTimer > 180) {
@@ -4226,6 +4297,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 addShockwave(ufo.x, ufo.y, 180, '#ff0055');
                 ufo.chargeTimer = 0;
                 ufo.isChargingBeam = false;
+                ufo.shootTimer = -30; // Pause spread-shot shortly after beam
 
                 if (ship.alive && Math.abs(ship.x - ufo.x) < 45 && ship.y > ufo.y) {
                   const isShielded = pTimers.shield > 0 || pTimers.golden > 0 || ship.invincibleTimer > 0;
@@ -4237,7 +4309,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 }
               }
 
-              if (ufo.shootTimer > 50) {
+              if (ufo.chargeTimer < 90 && ufo.shootTimer > 50) {
                 for (let a = -0.4; a <= 0.4; a += 0.2) {
                   const baseAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x) + a;
                   ufoBulletsRef.current.push({
@@ -4376,9 +4448,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                       break;
                    } else {
                       if (isLinked) {
-                         addFloatingText(ufo.x, ufo.y - 25, `LINKED! -${dmg}`, '#00ffff', 14);
+                         addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `LINKED! -${dmg}`, '#00ffff', 14);
                       } else {
-                         addFloatingText(ufo.x, ufo.y - 25, `-${dmg} HP`, '#ff0055', 18);
+                         addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `-${Math.floor(dmg)} HP`, '#ff0055', 18);
                       }
                    }
                 }
@@ -4398,7 +4470,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                      ufo.health -= dmg;
                      state.bossDamageDealt += dmg;
                      recordShotHit();
-                     createBigExplosion(b.x, b.y, '#ffffff');
+                     createSmallExplosion(b.x, b.y, '#ffffff');
                      soundEngine.playSound('heavy_explode');
                      if (!b.isLaser) bulletsRef.current.splice(i, 1);
                      
@@ -4406,7 +4478,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                         destroyUfo(ufo, 20000); // 20k points for final boss
                         break;
                      } else {
-                        addFloatingText(ufo.x, ufo.y - 25, `🎯 CORE HIT -${dmg} HP`, '#A371F7', 20);
+                        addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `🎯 CORE HIT -${Math.floor(dmg)} HP`, '#A371F7', 20);
                      }
                   }
                 }
@@ -4417,12 +4489,16 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   // OVERHEATED VULNERABLE PHASE: SHIELD DROPPED & Core Defense Exposed!
                   const hitRadius = ufo.radius + 15;
                   if (dist < hitRadius + b.size) {
-                    const dmg = (b.isLaser ? 28 : 12) * 3; // 3x Damage during vulnerability window!
+                    const dmg = (b.isLaser ? 8 : 12) * 1.2; // 1.2x Damage
                     ufo.health -= dmg;
                     state.bossDamageDealt += dmg;
                     recordShotHit();
-                    createBigExplosion(b.x, b.y, '#ffffff');
-                    soundEngine.playSound('heavy_explode');
+                    
+                    const isSpam = b.isLaser && b.life % 4 !== 0;
+                    if (!isSpam) {
+                      createSmallExplosion(b.x, b.y, '#ffffff');
+                      soundEngine.playSound('heavy_explode');
+                    }
 
                     if (!b.isLaser) {
                       bulletsRef.current.splice(i, 1);
@@ -4431,8 +4507,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                     if (ufo.health <= 0) {
                       destroyUfo(ufo, 10000);
                       break;
-                    } else {
-                      addFloatingText(ufo.x, ufo.y - 25, `💥 OVERHEAT CRITICAL -${dmg} HP`, '#ffff00', 16);
+                    } else if (!isSpam) {
+                      addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `💥 OVERHEAT CRITICAL -${Math.floor(dmg)} HP`, '#ffff00', 16);
                     }
                   }
                 } else {
@@ -4449,15 +4525,19 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
                     if (isThroughGap) {
                       // DIRECT CENTRAL CORE HIT THROUGH ROTATING SHIELD GAP!
-                      const dmg = b.isLaser ? 12 : 5;
+                      const dmg = b.isLaser ? 3 : 5;
                       ufo.health -= dmg;
                       state.bossDamageDealt += dmg;
                       recordShotHit();
                       const gapBonus = 300;
                       addScore(gapBonus, true);
-                      addFloatingText(ufo.x, ufo.y - 45, `GAP HIT +${gapBonus}`, '#00ffff', 18);
-                      createBigExplosion(b.x, b.y, '#00ffff');
-                      soundEngine.playSound('heavy_explode');
+                      
+                      const isSpam = b.isLaser && b.life % 4 !== 0;
+                      if (!isSpam) {
+                        addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `GAP HIT +${gapBonus}`, '#00ffff', 18);
+                        createSmallExplosion(b.x, b.y, '#00ffff');
+                        soundEngine.playSound('heavy_explode');
+                      }
 
                       if (!b.isLaser) {
                         bulletsRef.current.splice(i, 1);
@@ -4466,28 +4546,36 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                       if (ufo.health <= 0) {
                         destroyUfo(ufo, 10000);
                         break;
-                      } else {
-                        addFloatingText(ufo.x, ufo.y - 25, `🎯 CRITICAL CORE HIT -${dmg} HP`, '#00ffff', 20);
+                      } else if (!isSpam) {
+                        addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `🎯 CRITICAL CORE HIT -${Math.floor(dmg)} HP`, '#00ffff', 20);
                       }
                     } else {
                       // HITS IMPENETRABLE ROTATING SHIELD RING - DEFLECTED!
                       state.shotsHit++;
                       state.consecutiveHits = 0;
-                      soundEngine.playSound('shield_hit');
-                      for (let sp = 0; sp < 4; sp++) {
-                        particlesRef.current.push({
-                          x: b.x,
-                          y: b.y,
-                          vx: Math.cos(impactAngle + (Math.random() - 0.5)) * 6,
-                          vy: Math.sin(impactAngle + (Math.random() - 0.5)) * 6,
-                          life: 14,
-                          maxLife: 14,
-                          size: 2.5,
-                          color: '#00ffff',
-                          shape: 'spark'
-                        });
+                      
+                      const isSpam = b.isLaser && b.life % 4 !== 0;
+                      if (!isSpam && particlesRef.current.length < 200) {
+                        soundEngine.playSound('shield_hit');
+                        const sparkCount = particlesRef.current.length > 100 ? 1 : 4;
+                        for (let sp = 0; sp < sparkCount; sp++) {
+                          particlesRef.current.push({
+                            x: b.x,
+                            y: b.y,
+                            vx: Math.cos(impactAngle + (Math.random() - 0.5)) * 6,
+                            vy: Math.sin(impactAngle + (Math.random() - 0.5)) * 6,
+                            life: 14,
+                            maxLife: 14,
+                            size: 2.5,
+                            color: '#00ffff',
+                            shape: 'spark'
+                          });
+                        }
+                        if (Math.random() < 0.25) {
+                          addFloatingText(b.x, b.y - 12, 'SHIELD DEFLECTED!', '#00ffff', 12);
+                        }
                       }
-                      addFloatingText(b.x, b.y - 12, 'SHIELD DEFLECTED!', '#00ffff', 12);
+                      
                       if (!b.isLaser) {
                         bulletsRef.current.splice(i, 1);
                       }
@@ -4522,7 +4610,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   break;
                 } else {
                   const color = ufo.type === 'shield_node' ? '#A371F7' : '#ff6666';
-                  addFloatingText(ufo.x, ufo.y - 15, `-${dmg} HP`, color, 13);
+                  addFloatingText(ufo.x, ufo.y - 15, `-${Math.floor(dmg)} HP`, color, 13);
                 }
               }
             }
@@ -4549,17 +4637,34 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           }
           
           if (ub.isMine) {
-            ub.vx *= 0.98;
-            ub.vy *= 0.98;
+            // Mines slowly drift towards the player!
+            if (ship.alive) {
+              const dx = ship.x - ub.x;
+              const dy = ship.y - ub.y;
+              const dist = Math.hypot(dx, dy);
+              if (dist > 1) {
+                ub.vx += (dx / dist) * 0.05 * timeFactor;
+                ub.vy += (dy / dist) * 0.05 * timeFactor;
+              }
+              // Cap speed
+              const speed = Math.hypot(ub.vx, ub.vy);
+              if (speed > 3.0) {
+                ub.vx = (ub.vx / speed) * 3.0;
+                ub.vy = (ub.vy / speed) * 3.0;
+              }
+            } else {
+              ub.vx *= 0.98;
+              ub.vy *= 0.98;
+            }
             
             if (ship.alive) {
                const dist = Math.hypot(ship.x - ub.x, ship.y - ub.y);
-               if (dist < 120) { // proximity trigger radius
+               if (dist < 110) { // proximity trigger radius
                   createBigExplosion(ub.x, ub.y, '#ff4400');
                   addShockwave(ub.x, ub.y, 160, '#ffaa00');
                   soundEngine.playSound('heavy_explode');
                   
-                  if (dist < ship.radius + 80) { // actual damage radius
+                  if (dist < ship.radius + 120) { // actual damage radius covers the blast
                     const isShielded = pTimers.shield > 0 || pTimers.golden > 0 || ship.invincibleTimer > 0;
                     if (isShielded) {
                       soundEngine.playSound('shield_hit');
@@ -5355,15 +5460,26 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           const sweepAngle = ufo.laserTargetAngle || Math.PI / 2;
           const beamDist = 2200;
 
-          // 1. TELEGRAPH PHASE (2.5 seconds / 150 frames): Thin faint target line
+          // 1. TELEGRAPH PHASE (Significantly extended & readable charge up):
           if (ufo.bossState === 'laserCharge') {
             ctx.save();
-            ctx.strokeStyle = `rgba(0, 255, 255, ${0.4 + Math.sin(now * 0.02) * 0.3})`;
-            ctx.shadowBlur = 10;
+            const chargeMax = ufo.type === 'dreadnought' ? 300 : 150;
+            const chargeRatio = ufo.bossStateTimer ? Math.max(0, 1 - (ufo.bossStateTimer / chargeMax)) : 1;
+            
+            // Outer thick faint warning glow
+            ctx.strokeStyle = `rgba(0, 255, 255, ${0.3 + chargeRatio * 0.4})`;
+            ctx.shadowBlur = 20 + chargeRatio * 20;
             ctx.shadowColor = '#00ffff';
-            ctx.lineWidth = 1.5;
-            ctx.setLineDash([8, 6]);
+            ctx.lineWidth = 15 + chargeRatio * 15;
+            ctx.beginPath();
+            ctx.moveTo(ufo.x, ufo.y);
+            ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
+            ctx.stroke();
 
+            // Inner bright core dash line
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + chargeRatio * 0.5})`;
+            ctx.lineWidth = 3 + chargeRatio * 5;
+            ctx.setLineDash(chargeRatio < 0.85 ? [20 - chargeRatio * 10, 15 - chargeRatio * 5] : []);
             ctx.beginPath();
             ctx.moveTo(ufo.x, ufo.y);
             ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
@@ -5891,7 +6007,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
           ctx.restore();
 
-        } else if (ufo.type === 'dreadnought') {
+        } else if (ufo.type === 'dreadnought' && ufo.isBoss) {
           const rad = ufo.radius;
           const coreRot = now * 0.003;
           const isOverheated = ufo.bossState === 'cooldown';
@@ -6014,152 +6130,646 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ctx.restore();
           }
 
-          // TRON Biomechanic Mainframe Core
-          const hullGrad = ctx.createRadialGradient(0, 0, 10, 0, 0, rad);
-          hullGrad.addColorStop(0, '#020108');
-          hullGrad.addColorStop(0.6, '#080515');
-          hullGrad.addColorStop(1, '#000000');
+          // --- TRON SOVEREIGN AI ROBOT FACE / DREADNOUGHT HEAD CHASSIS ---
+          const faceColor = phaseColor;
+          const glowColor = ufo.bossPhase === 2 ? '#ffaa00' : '#00ffff';
+          const magentaAccent = '#ff007f';
+          const electricBlue = '#38bdf8';
 
-          ctx.fillStyle = hullGrad;
-          ctx.strokeStyle = phaseColor;
-          ctx.lineWidth = ufo.bossPhase === 2 ? 6 : 4;
-          ctx.shadowBlur = isOverheated ? 45 : ufo.bossPhase === 2 ? 40 : 25;
-          ctx.shadowColor = phaseColor;
-          
-          // Angular TRON disk hull
-          ctx.beginPath();
-          ctx.moveTo(0, -rad * 1.2);
-          ctx.lineTo(rad * 0.6, -rad * 0.8);
-          ctx.lineTo(rad * 1.2, 0);
-          ctx.lineTo(rad * 0.6, rad * 0.8);
-          ctx.lineTo(0, rad * 1.2);
-          ctx.lineTo(-rad * 0.6, rad * 0.8);
-          ctx.lineTo(-rad * 1.2, 0);
-          ctx.lineTo(-rad * 0.6, -rad * 0.8);
-          ctx.closePath();
-          ctx.stroke();
-          ctx.fill();
+          // Continuous subtle idle motion for presence
+          const idleBreath = Math.sin(now * 0.0025);
+          const jawIdleOffset = idleBreath * rad * 0.025; // Subtle micro-shifting of jaw
+          const browIdleOffset = -idleBreath * rad * 0.015; // Counter-shift for brow
 
-          // Internal biomechanic circuitry ribs
+          // 1. Heavy Base Metallic Face Silhouette & Helmet Crest with Gradient Depth
           ctx.save();
-          ctx.strokeStyle = '#00ffff';
-          ctx.lineWidth = 2;
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = '#00ffff';
-          
-          for(let i=0; i<8; i++) {
-             const angle = (i/8) * Math.PI * 2;
-             ctx.beginPath();
-             ctx.moveTo(Math.cos(angle) * rad * 0.3, Math.sin(angle) * rad * 0.3);
-             ctx.lineTo(Math.cos(angle) * rad * 0.9, Math.sin(angle) * rad * 0.9);
-             // Circuit branches
-             const branchA = angle + Math.PI/8;
-             const branchB = angle - Math.PI/8;
-             ctx.lineTo(Math.cos(branchA) * rad * 1.0, Math.sin(branchA) * rad * 1.0);
-             ctx.moveTo(Math.cos(angle) * rad * 0.9, Math.sin(angle) * rad * 0.9);
-             ctx.lineTo(Math.cos(branchB) * rad * 1.0, Math.sin(branchB) * rad * 1.0);
-             ctx.stroke();
+
+          // Outer Helmet Glow Aura
+          ctx.shadowBlur = isOverheated ? 60 : ufo.bossPhase === 2 ? 48 : 32;
+          ctx.shadowColor = faceColor;
+
+          // Main Metallic Head Chassis Fill Gradient (Top Light Source)
+          const headGrad = ctx.createLinearGradient(0, -rad * 1.3, 0, rad * 1.2);
+          headGrad.addColorStop(0, '#121d36'); // Specular metallic top
+          headGrad.addColorStop(0.3, '#080e1f');
+          headGrad.addColorStop(0.7, '#03050c');
+          headGrad.addColorStop(1, '#000104'); // Shadowed bottom
+
+          ctx.fillStyle = headGrad;
+          ctx.strokeStyle = faceColor;
+          ctx.lineWidth = isOverheated ? 5 : ufo.bossPhase === 2 ? 4.5 : 3.5;
+
+          // Face Outline Path: Cybernetic Crown -> Spires -> Temple -> Cheeks -> Jaw -> Chin
+          ctx.beginPath();
+          // Crown Top Center
+          ctx.moveTo(0, -rad * 1.05 + browIdleOffset);
+          // Top Left Horn/Spire
+          ctx.lineTo(-rad * 0.45, -rad * 1.05 + browIdleOffset);
+          ctx.lineTo(-rad * 0.75, -rad * 1.25 + browIdleOffset);
+          ctx.lineTo(-rad * 0.85, -rad * 0.95 + browIdleOffset);
+          // Left Temple Flange
+          ctx.lineTo(-rad * 1.15, -rad * 0.55);
+          ctx.lineTo(-rad * 1.05, -rad * 0.15);
+          // Left Cheekbone
+          ctx.lineTo(-rad * 1.18, rad * 0.2);
+          // Left Jawline
+          ctx.lineTo(-rad * 0.75, rad * 0.75 + jawIdleOffset);
+          ctx.lineTo(-rad * 0.4, rad * 1.0 + jawIdleOffset);
+          // Chin Base
+          ctx.lineTo(0, rad * 1.15 + jawIdleOffset);
+          // Right Jawline
+          ctx.lineTo(rad * 0.4, rad * 1.0 + jawIdleOffset);
+          ctx.lineTo(rad * 0.75, rad * 0.75 + jawIdleOffset);
+          // Right Cheekbone
+          ctx.lineTo(rad * 1.18, rad * 0.2);
+          // Right Temple Flange
+          ctx.lineTo(rad * 1.05, -rad * 0.15);
+          ctx.lineTo(rad * 1.15, -rad * 0.55);
+          // Top Right Horn/Spire
+          ctx.lineTo(rad * 0.85, -rad * 0.95 + browIdleOffset);
+          ctx.lineTo(rad * 0.75, -rad * 1.25 + browIdleOffset);
+          ctx.lineTo(rad * 0.45, -rad * 1.05 + browIdleOffset);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          // Top Light Source Specular Highlight Edge
+          ctx.save();
+          ctx.strokeStyle = 'rgba(186, 230, 253, 0.75)';
+          ctx.lineWidth = 1.5;
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = electricBlue;
+          ctx.beginPath();
+          ctx.moveTo(-rad * 0.75, -rad * 1.25 + browIdleOffset);
+          ctx.lineTo(-rad * 0.45, -rad * 1.05 + browIdleOffset);
+          ctx.lineTo(0, -rad * 1.05 + browIdleOffset);
+          ctx.lineTo(rad * 0.45, -rad * 1.05 + browIdleOffset);
+          ctx.lineTo(rad * 0.75, -rad * 1.25 + browIdleOffset);
+          ctx.stroke();
+
+          // Bottom Dark Shadow Rim
+          ctx.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+          ctx.lineWidth = 2.5;
+          ctx.shadowBlur = 0;
+          ctx.beginPath();
+          ctx.moveTo(-rad * 0.75, rad * 0.75 + jawIdleOffset);
+          ctx.lineTo(-rad * 0.4, rad * 1.0 + jawIdleOffset);
+          ctx.lineTo(0, rad * 1.15 + jawIdleOffset);
+          ctx.lineTo(rad * 0.4, rad * 1.0 + jawIdleOffset);
+          ctx.lineTo(rad * 0.75, rad * 0.75 + jawIdleOffset);
+          ctx.stroke();
+          ctx.restore();
+
+          // 2. Dual Temple Spire Energy Emitters & Top Antenna Node Lights
+          for (const side of [-1, 1]) {
+            const spireX = side * rad * 0.75;
+            const spireY = -rad * 1.25 + browIdleOffset;
+
+            // Pulsing tip node
+            const spirePulse = (Math.sin(now * 0.008 + side) + 1) / 2;
+            ctx.fillStyle = side === 1 ? magentaAccent : '#00ffff';
+            ctx.shadowBlur = 15 + spirePulse * 15;
+            ctx.shadowColor = ctx.fillStyle;
+            ctx.beginPath();
+            ctx.arc(spireX, spireY, 5 + spirePulse * 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // White core dot
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(spireX, spireY, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // 3. Beveled Cheek & Temple Armor Facets with Gradient Shading & Highlights
+          ctx.save();
+
+          for (const side of [-1, 1]) {
+            // Beveled Cheek Plate
+            const cheekGrad = ctx.createLinearGradient(side * rad * 0.35, rad * 0.05, side * rad * 1.0, rad * 0.7);
+            cheekGrad.addColorStop(0, '#15223e');
+            cheekGrad.addColorStop(0.5, '#0a1224');
+            cheekGrad.addColorStop(1, '#02050e');
+
+            ctx.fillStyle = cheekGrad;
+            ctx.strokeStyle = electricBlue;
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = electricBlue;
+
+            ctx.beginPath();
+            ctx.moveTo(side * rad * 0.35, rad * 0.05);
+            ctx.lineTo(side * rad * 0.9, rad * 0.15);
+            ctx.lineTo(side * rad * 1.0, rad * 0.45);
+            ctx.lineTo(side * rad * 0.6, rad * 0.7 + jawIdleOffset * 0.5);
+            ctx.lineTo(side * rad * 0.25, rad * 0.45);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Cheek Top Edge Specular Highlight
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(side * rad * 0.35, rad * 0.05);
+            ctx.lineTo(side * rad * 0.9, rad * 0.15);
+            ctx.stroke();
+
+            // Cheek Vent Heat Gills
+            ctx.strokeStyle = magentaAccent;
+            ctx.lineWidth = 1.5;
+            for (let g = 0; g < 3; g++) {
+              const gy = rad * (0.25 + g * 0.09) + jawIdleOffset * 0.3;
+              ctx.beginPath();
+              ctx.moveTo(side * rad * 0.55, gy);
+              ctx.lineTo(side * rad * 0.85, gy + rad * 0.03);
+              ctx.stroke();
+            }
+
+            // Temple Brow Facet Gradient
+            const templeGrad = ctx.createLinearGradient(side * rad * 0.25, -rad * 0.8, side * rad * 0.9, -rad * 0.45);
+            templeGrad.addColorStop(0, '#182745');
+            templeGrad.addColorStop(1, '#040812');
+
+            ctx.fillStyle = templeGrad;
+            ctx.strokeStyle = faceColor;
+            ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            ctx.moveTo(side * rad * 0.25, -rad * 0.8 + browIdleOffset);
+            ctx.lineTo(side * rad * 0.7, -rad * 0.75 + browIdleOffset);
+            ctx.lineTo(side * rad * 0.9, -rad * 0.45);
+            ctx.lineTo(side * rad * 0.35, -rad * 0.45);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
           }
           ctx.restore();
 
-          // Core Processing Node (Mouth/Central Reactor)
-          if (isOverheated) {
-            ctx.save();
-            const heatPulse = 1.0 + Math.sin(now * 0.02) * 0.3;
-            ctx.translate(0, rad * 0.3); // Lower central core
-            
-            ctx.fillStyle = '#ffffff';
-            ctx.shadowBlur = 30 * heatPulse;
-            ctx.shadowColor = '#ffffff';
+          // 4. Integrated Neck Seam, Articulated Hinge Nodes & PCB Circuits
+          ctx.save();
+          // Stepped Horizontal Cybernetic Seam connecting Brow/Visor section to Jaw
+          ctx.strokeStyle = 'rgba(0, 255, 255, 0.75)';
+          ctx.lineWidth = 2;
+          ctx.shadowBlur = 12;
+          ctx.shadowColor = '#00ffff';
 
+          ctx.beginPath();
+          ctx.moveTo(-rad * 0.9, rad * 0.12);
+          ctx.lineTo(-rad * 0.5, rad * 0.12);
+          ctx.lineTo(-rad * 0.4, rad * 0.2);
+          ctx.lineTo(rad * 0.4, rad * 0.2);
+          ctx.lineTo(rad * 0.5, rad * 0.12);
+          ctx.lineTo(rad * 0.9, rad * 0.12);
+          ctx.stroke();
+
+          // Articulated Jaw Hinge Node Rivets
+          for (const side of [-1, 1]) {
+            ctx.fillStyle = magentaAccent;
+            ctx.shadowColor = magentaAccent;
+            ctx.shadowBlur = 12;
             ctx.beginPath();
-            // Exposed glowing hexagon core
-            for(let i=0; i<6; i++) {
-                const a = (i/6)*Math.PI*2 + coreRot;
-                if (i===0) ctx.moveTo(Math.cos(a)*rad*0.5*heatPulse, Math.sin(a)*rad*0.5*heatPulse);
-                else ctx.lineTo(Math.cos(a)*rad*0.5*heatPulse, Math.sin(a)*rad*0.5*heatPulse);
-            }
-            ctx.closePath();
+            ctx.arc(side * rad * 0.88, rad * 0.12, 3.5, 0, Math.PI * 2);
             ctx.fill();
 
-            ctx.strokeStyle = '#ffff00';
-            ctx.lineWidth = 4;
-            ctx.shadowColor = '#ffff00';
-            ctx.shadowBlur = 25;
+            ctx.fillStyle = '#ffffff';
             ctx.beginPath();
-            ctx.arc(0, 0, rad * 0.6 * heatPulse, 0, Math.PI * 2);
+            ctx.arc(side * rad * 0.88, rad * 0.12, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // PCB Circuit Traces
+          ctx.strokeStyle = faceColor;
+          ctx.lineWidth = 1.8;
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = faceColor;
+
+          for (const side of [-1, 1]) {
+            ctx.beginPath();
+            ctx.moveTo(side * rad * 0.15, -rad * 0.55);
+            ctx.lineTo(side * rad * 0.15, -rad * 0.85 + browIdleOffset);
+            ctx.lineTo(side * rad * 0.5, -rad * 0.95 + browIdleOffset);
             ctx.stroke();
 
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = magentaAccent;
             ctx.beginPath();
-            ctx.arc(0, 0, rad * 0.25, 0, Math.PI * 2);
+            ctx.arc(side * rad * 0.5, -rad * 0.95 + browIdleOffset, 3, 0, Math.PI * 2);
             ctx.fill();
+          }
+
+          // Central Brow Crest Emblem (Triangular AI Node)
+          ctx.fillStyle = faceColor;
+          ctx.beginPath();
+          ctx.moveTo(0, -rad * 0.85 + browIdleOffset);
+          ctx.lineTo(-rad * 0.18, -rad * 0.62 + browIdleOffset);
+          ctx.lineTo(rad * 0.18, -rad * 0.62 + browIdleOffset);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(0, -rad * 0.7 + browIdleOffset, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+
+          // 5. Angular Cybernetic Jaw & Mechanical Exhaust Vent Slits
+          ctx.save();
+          const jawY = rad * 0.55 + jawIdleOffset;
+
+          if (isOverheated) {
+            // OVERHEATED: Jaw drops open wide, exposing flared white-hot TRON thermal exhaust vents!
+            ctx.translate(0, jawY + rad * 0.18);
+
+            const alarmPulse = (Math.sin(now * 0.025) + 1) / 2; // High-frequency alarm pulse
+            const heatPulse = (Math.sin(now * 0.035) + 1) / 2;
+
+            // 1. Angular Trapezoid Vent Housing Collar Frame
+            ctx.strokeStyle = '#ffff00';
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 35 + alarmPulse * 20;
+            ctx.shadowColor = '#ff3300';
+
+            const housingGrad = ctx.createLinearGradient(0, -rad * 0.25, 0, rad * 0.35);
+            housingGrad.addColorStop(0, '#220800');
+            housingGrad.addColorStop(0.5, '#120300');
+            housingGrad.addColorStop(1, '#050000');
+
+            ctx.fillStyle = housingGrad;
+            ctx.beginPath();
+            ctx.moveTo(-rad * 0.52, -rad * 0.22);
+            ctx.lineTo(rad * 0.52, -rad * 0.22);
+            ctx.lineTo(rad * 0.42, rad * 0.38);
+            ctx.lineTo(-rad * 0.42, rad * 0.38);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Specular highlight line along top edge of housing collar
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.5;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#ffffff';
+            ctx.beginPath();
+            ctx.moveTo(-rad * 0.52, -rad * 0.22);
+            ctx.lineTo(rad * 0.52, -rad * 0.22);
+            ctx.stroke();
+
+            // 2. Flared Thermal Exhaust Vent Slits (Intensified, Wider, Brighter, & Longer)
+            const ventCount = 9;
+            const ventW = rad * 0.055;
+            const ventGap = rad * 0.085;
+            const startX = -((ventCount - 1) * ventGap) / 2;
+
+            for (let i = 0; i < ventCount; i++) {
+              const vx = startX + i * ventGap;
+              // Extended height during overheat reaching up into jaw/chest area
+              const baseH = rad * 0.48;
+              const dynamicWave = Math.sin(now * 0.02 + i * 0.5) * rad * 0.08;
+              const ventH = baseH + dynamicWave + heatPulse * rad * 0.06;
+
+              // Recessed dark vent slot
+              ctx.fillStyle = '#080000';
+              ctx.fillRect(vx - ventW / 2, -ventH / 2, ventW, ventH);
+
+              // Outer Amber/Orange Thermal Glow Border
+              ctx.strokeStyle = '#ff9900';
+              ctx.lineWidth = 1.5;
+              ctx.shadowBlur = 15;
+              ctx.shadowColor = '#ff6600';
+              ctx.strokeRect(vx - ventW / 2, -ventH / 2, ventW, ventH);
+
+              // Inner Blazing White-Hot Energy Core Bar
+              ctx.fillStyle = '#ffffff';
+              ctx.shadowBlur = 30 + alarmPulse * 20;
+              ctx.shadowColor = '#ffff00';
+              ctx.fillRect(vx - ventW * 0.35, -ventH * 0.42, ventW * 0.7, ventH * 0.84);
+
+              // High-intensity white center surge line
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 1.8;
+              ctx.shadowBlur = 20;
+              ctx.shadowColor = '#ffffff';
+              ctx.beginPath();
+              ctx.moveTo(vx, -ventH * 0.45);
+              ctx.lineTo(vx, ventH * 0.45);
+              ctx.stroke();
+            }
+
+            // 3. Flanking Inward Target Chevrons & Vent Louvers (TRON Line-Art Target Cues)
+            ctx.strokeStyle = '#ffff00';
+            ctx.lineWidth = 2.5;
+            ctx.shadowBlur = 25;
+            ctx.shadowColor = '#ff3300';
+
+            for (const side of [-1, 1]) {
+              for (let c = 0; c < 3; c++) {
+                const cy = -rad * 0.12 + c * rad * 0.18;
+                const cxOuter = side * (rad * 0.65 + c * rad * 0.03);
+                const cxInner = side * (rad * 0.48 + c * rad * 0.02);
+
+                ctx.beginPath();
+                ctx.moveTo(cxOuter, cy - rad * 0.06);
+                ctx.lineTo(cxInner, cy);
+                ctx.lineTo(cxOuter, cy + rad * 0.06);
+                ctx.stroke();
+              }
+            }
+
+            // 4. Linear Vector Plasma Sparks (Straight Vector Line Segments)
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#ffff00';
+
+            for (let s = 0; s < 8; s++) {
+              const sx = startX + (s / 7) * (ventCount * ventGap) + (Math.random() - 0.5) * rad * 0.04;
+              const syBase = Math.random() < 0.5 ? -rad * 0.28 : rad * 0.28;
+              const sparkLen = rad * 0.12 + Math.random() * rad * 0.15;
+              const dir = syBase < 0 ? -1 : 1;
+
+              ctx.beginPath();
+              ctx.moveTo(sx, syBase);
+              ctx.lineTo(sx + (Math.random() - 0.5) * rad * 0.04, syBase + dir * sparkLen);
+              ctx.stroke();
+            }
+          } else {
+            // NORMAL: Closed Cyber Jaw with Vertical Mechanical Vent Slits & Equalizer
+            ctx.translate(0, jawY);
+
+            // Jaw Collar Plate Gradient
+            const jawGrad = ctx.createLinearGradient(0, -rad * 0.1, 0, rad * 0.25);
+            jawGrad.addColorStop(0, '#0d1830');
+            jawGrad.addColorStop(1, '#02050c');
+
+            ctx.fillStyle = jawGrad;
+            ctx.strokeStyle = faceColor;
+            ctx.lineWidth = 2.5;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = faceColor;
+
+            // Jaw Armor Collar
+            ctx.beginPath();
+            ctx.moveTo(-rad * 0.45, -rad * 0.1);
+            ctx.lineTo(rad * 0.45, -rad * 0.1);
+            ctx.lineTo(rad * 0.35, rad * 0.25);
+            ctx.lineTo(-rad * 0.35, rad * 0.25);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Top Specular Highlight on Jaw Collar
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(-rad * 0.45, -rad * 0.1);
+            ctx.lineTo(rad * 0.45, -rad * 0.1);
+            ctx.stroke();
+
+            // Mechanical Vertical Exhaust Vent Slits with Inner Glowing Vocoder Heat Sink Bars
+            const ventCount = 7;
+            const ventW = rad * 0.04;
+            const ventGap = rad * 0.08;
+            const startX = -((ventCount - 1) * ventGap) / 2;
+
+            for (let i = 0; i < ventCount; i++) {
+              const vx = startX + i * ventGap;
+              const ventH = rad * 0.16 + Math.sin(now * 0.012 + i * 0.6) * rad * 0.04;
+
+              // Recessed dark slot
+              ctx.fillStyle = '#020308';
+              ctx.fillRect(vx - ventW / 2, -ventH / 2, ventW, ventH);
+
+              // Inner Glowing Exhaust Bar
+              ctx.fillStyle = i % 2 === 0 ? magentaAccent : electricBlue;
+              ctx.shadowBlur = 8;
+              ctx.shadowColor = ctx.fillStyle;
+              ctx.fillRect(vx - ventW * 0.3, -ventH * 0.35, ventW * 0.6, ventH * 0.7);
+            }
+          }
+          ctx.restore();
+
+          // 6. MECHANICAL SENSOR APERTURE EYE (PRIMARY FACE WEAK POINT)
+          ctx.save();
+          const eyeY = -rad * 0.15; // Centered face visor position
+          ctx.translate(0, eyeY);
+
+          // Visor Frame Socket (Geometric Beveled Cyber Socket)
+          const visorW = rad * 0.8;
+          const visorH = rad * 0.42;
+
+          const visorGrad = ctx.createRadialGradient(0, 0, rad * 0.1, 0, 0, visorW);
+          visorGrad.addColorStop(0, '#060c1c');
+          visorGrad.addColorStop(0.7, '#02040b');
+          visorGrad.addColorStop(1, '#000104');
+
+          ctx.fillStyle = visorGrad;
+          ctx.strokeStyle = faceColor;
+          ctx.lineWidth = 3;
+          ctx.shadowBlur = 25;
+          ctx.shadowColor = faceColor;
+
+          // Geometric Visor Polygon
+          ctx.beginPath();
+          ctx.moveTo(-visorW, -visorH * 0.5);
+          ctx.lineTo(-visorW * 0.5, -visorH);
+          ctx.lineTo(visorW * 0.5, -visorH);
+          ctx.lineTo(visorW, -visorH * 0.5);
+          ctx.lineTo(visorW * 0.75, visorH);
+          ctx.lineTo(-visorW * 0.75, visorH);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+
+          // Top Highlight on Visor Frame
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(-visorW * 0.5, -visorH);
+          ctx.lineTo(visorW * 0.5, -visorH);
+          ctx.stroke();
+
+          // Side Auxiliary Visor Slits
+          for (const side of [-1, 1]) {
+            ctx.fillStyle = magentaAccent;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = magentaAccent;
+            ctx.beginPath();
+            ctx.moveTo(side * visorW * 0.65, -visorH * 0.2);
+            ctx.lineTo(side * visorW * 0.88, -visorH * 0.2);
+            ctx.lineTo(side * visorW * 0.82, visorH * 0.3);
+            ctx.lineTo(side * visorW * 0.62, visorH * 0.3);
+            ctx.closePath();
+            ctx.fill();
+          }
+
+          // === MECHANICAL SENSOR APERTURE EYE LENS & CORE ===
+          const sensorRad = rad * 0.3;
+
+          // Concentric Ring 1: Outer Hexagonal Aperture Housing (Static Housing)
+          ctx.save();
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.8)';
+          ctx.lineWidth = 2;
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#38bdf8';
+          ctx.beginPath();
+          for (let i = 0; i < 6; i++) {
+            const ha = (i / 6) * Math.PI * 2;
+            const hx = Math.cos(ha) * (sensorRad * 1.15);
+            const hy = Math.sin(ha) * (sensorRad * 1.15);
+            if (i === 0) ctx.moveTo(hx, hy);
+            else ctx.lineTo(hx, hy);
+          }
+          ctx.closePath();
+          ctx.stroke();
+
+          // Concentric Ring 2: Outer Circular Iris Ring with Camera Aperture Blades & Ticks
+          const tickCount = 16;
+          ctx.strokeStyle = faceColor;
+          ctx.lineWidth = 1.8;
+          ctx.shadowBlur = 18;
+          ctx.shadowColor = faceColor;
+
+          ctx.beginPath();
+          ctx.arc(0, 0, sensorRad, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Camera Aperture Ticks / Blade Edges
+          for (let t = 0; t < tickCount; t++) {
+            const ta = (t / tickCount) * Math.PI * 2;
+            const innerR = sensorRad * 0.82;
+            const outerR = sensorRad * 1.08;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(ta) * innerR, Math.sin(ta) * innerR);
+            ctx.lineTo(Math.cos(ta + 0.15) * outerR, Math.sin(ta + 0.15) * outerR);
+            ctx.stroke();
+          }
+
+          // Concentric Ring 3: Innermost Spinning Precision Sensor Arc Ring (Constant Active Spin)
+          ctx.rotate(now * 0.003); // Active scanning spin
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+          ctx.lineWidth = 2;
+          ctx.shadowBlur = 22;
+          ctx.shadowColor = '#ffffff';
+
+          // Segmented 3-Arc Precision Ring
+          for (let a = 0; a < 3; a++) {
+            const arcStart = a * (Math.PI * 2 / 3) + 0.2;
+            const arcEnd = arcStart + (Math.PI * 2 / 3) - 0.4;
+            ctx.beginPath();
+            ctx.arc(0, 0, sensorRad * 0.65, arcStart, arcEnd);
+            ctx.stroke();
+          }
+          ctx.restore(); // Restore spin rotation
+
+          // Concentric Ring 4: Deep Optical Lens Chamber Gradient
+          const lensGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, sensorRad * 0.6);
+          lensGrad.addColorStop(0, '#ffffff');
+          lensGrad.addColorStop(0.3, isOverheated ? '#ffff00' : glowColor);
+          lensGrad.addColorStop(0.7, isOverheated ? '#ff3300' : magentaAccent);
+          lensGrad.addColorStop(1, '#020008');
+
+          ctx.fillStyle = lensGrad;
+          ctx.shadowBlur = isOverheated ? 65 : 45; // HIGH-INTENSITY FOCAL POINT
+          ctx.shadowColor = isOverheated ? '#ffff00' : glowColor;
+
+          ctx.beginPath();
+          ctx.arc(0, 0, sensorRad * 0.55, 0, Math.PI * 2);
+          ctx.fill();
+
+          // ULTRA-BRIGHT PUPIL CORE (ULTRA-FLARE WEAK POINT TARGET)
+          const corePulse = (Math.sin(now * 0.006) + 1) / 2 * 0.2 + 0.9;
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowBlur = isOverheated ? 70 : 55; // Noticeably brighter than every other element!
+          ctx.shadowColor = '#ffffff';
+
+          ctx.beginPath();
+          ctx.arc(0, 0, sensorRad * 0.28 * corePulse, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Precision Target Reticle Crosshairs
+          ctx.strokeStyle = isOverheated ? '#ffff00' : '#00ffff';
+          ctx.lineWidth = 1.5;
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = ctx.strokeStyle;
+
+          ctx.beginPath();
+          ctx.moveTo(-sensorRad * 0.45, 0);
+          ctx.lineTo(-sensorRad * 0.15, 0);
+          ctx.moveTo(sensorRad * 0.15, 0);
+          ctx.lineTo(sensorRad * 0.45, 0);
+          ctx.moveTo(0, -sensorRad * 0.45);
+          ctx.lineTo(0, -sensorRad * 0.15);
+          ctx.moveTo(0, sensorRad * 0.15);
+          ctx.lineTo(0, sensorRad * 0.45);
+          ctx.stroke();
+
+          // Specular Glass Reflection Highlight on Lens
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          ctx.shadowBlur = 5;
+          ctx.shadowColor = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(-sensorRad * 0.18, -sensorRad * 0.18, sensorRad * 0.08, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.restore(); // End Visor/Eye
+
+          // 7. WEAK POINT LINK: Energy Conduit Line pointing from Face Eye to Rotating Shield Gap or Flared Vents!
+          if (!isOverheated) {
+            const sAngle = ufo.shieldAngle || 0;
+            const shieldRadius = rad + 35;
+
+            ctx.save();
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.65)';
+            ctx.lineWidth = 1.5;
+            ctx.setLineDash([4, 4]);
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#00ffff';
+
+            // Draw targeting alignment laser ray from central eye (0, eyeY) towards shield gap at angle sAngle
+            ctx.beginPath();
+            ctx.moveTo(0, eyeY);
+            ctx.lineTo(Math.cos(sAngle) * shieldRadius, Math.sin(sAngle) * shieldRadius + eyeY * 0.2);
+            ctx.stroke();
+
             ctx.restore();
           } else {
+            // WEAK POINT TARGETING LINK (OVERHEATED): Direct targeting arrow & HUD line pointing at the flared vents
             ctx.save();
-            ctx.translate(0, rad * 0.4);
+            const ventTargetY = jawY + rad * 0.18;
+            const pulse = (Math.sin(now * 0.015) + 1) / 2;
+            const arrowDist = rad * 0.55 + pulse * 10;
 
-            ctx.strokeStyle = "#05030f";
-            ctx.lineWidth = 4;
-            ctx.fillStyle = phaseColor;
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = phaseColor;
-
-            ctx.beginPath();
-            for(let i=0; i<12; i++) {
-                const a = (i/12)*Math.PI*2;
-                const inner = rad * 0.35;
-                const outer = rad * 0.45;
-                ctx.moveTo(Math.cos(a)*inner, Math.sin(a)*inner);
-                ctx.lineTo(Math.cos(a)*outer, Math.sin(a)*outer);
-            }
-            ctx.stroke();
-
-            ctx.rotate(-coreRot * 2);
-
-            ctx.fillStyle = phaseColor;
+            ctx.strokeStyle = `rgba(255, 255, 0, ${0.75 + pulse * 0.25})`;
+            ctx.fillStyle = `rgba(255, 255, 0, ${0.85 + pulse * 0.15})`;
+            ctx.shadowColor = '#ff2200';
             ctx.shadowBlur = 25;
-            ctx.shadowColor = "#ff0055";
+            ctx.lineWidth = 2;
 
+            // Dotted HUD ray pointing UP at the flared vents
+            ctx.setLineDash([4, 4]);
             ctx.beginPath();
-            for(let i=0; i<6; i++) {
-                const a = (i/6)*Math.PI*2;
-                if (i===0) ctx.moveTo(Math.cos(a)*rad*0.35, Math.sin(a)*rad*0.35);
-                else ctx.lineTo(Math.cos(a)*rad*0.35, Math.sin(a)*rad*0.35);
-            }
+            ctx.moveTo(0, ventTargetY + arrowDist + 15);
+            ctx.lineTo(0, ventTargetY + rad * 0.38);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Inward pointing target triangle arrow aimed directly UP at the flared vents
+            ctx.beginPath();
+            ctx.moveTo(0, ventTargetY + rad * 0.38);
+            ctx.lineTo(-12, ventTargetY + rad * 0.52);
+            ctx.lineTo(12, ventTargetY + rad * 0.52);
             ctx.closePath();
             ctx.fill();
 
-            ctx.strokeStyle = "#ffffff";
-            ctx.lineWidth = 2.5;
-            ctx.beginPath();
-            for(let i=0; i<6; i++) {
-                const a = (i/6)*Math.PI*2;
-                if(i===0) ctx.moveTo(Math.cos(a)*rad*0.25, Math.sin(a)*rad*0.25);
-                else ctx.lineTo(Math.cos(a)*rad*0.25, Math.sin(a)*rad*0.25);
-            }
-            ctx.closePath();
-            ctx.stroke();
-
-            ctx.fillStyle = "#ffffff";
-            ctx.beginPath();
-            ctx.arc(0, 0, rad * 0.1, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.rotate(coreRot * 4);
-            ctx.strokeStyle = "#00ffff";
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            for(let i=0; i<3; i++) {
-                const a = (i/3)*Math.PI*2;
-                if(i===0) ctx.moveTo(Math.cos(a)*rad*0.18, Math.sin(a)*rad*0.18);
-                else ctx.lineTo(Math.cos(a)*rad*0.18, Math.sin(a)*rad*0.18);
-            }
-            ctx.closePath();
-            ctx.stroke();
+            // Bold "WEAK POINT" HUD text below the arrow
+            ctx.font = 'bold 15px font-mono';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('WEAK POINT', 0, ventTargetY + arrowDist + 28);
 
             ctx.restore();
           }
+
+          ctx.restore(); // End Head Chassis Save
         } else if (isDreadnought) {
           // --- ROBOTIC VECTOR SENTINEL CHASSIS OVERHAUL (TRON MECH STYLE) ---
           const rad = ufo.radius; // 44
@@ -6362,26 +6972,27 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
           ctx.restore();
         } else if (isHunter) {
-          // Hunter Interceptor: Forward-swept stealth wing ship with twin tail fins, angled cockpit visor line
+          // Hunter Interceptor: Forward-swept stealth wing ship with twin tail fins, angled cockpit visor line, extended nose for directionality
           ctx.rotate(ufo.angle);
 
           // Stealth wing outline
           ctx.fillStyle = '#0f172a';
           ctx.strokeStyle = '#FF9900';
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.moveTo(ufo.radius, 0);
-          ctx.lineTo(ufo.radius * 0.2, -ufo.radius * 0.35);
-          ctx.lineTo(-ufo.radius * 0.25, -ufo.radius); // Forward swept wing tip
-          ctx.lineTo(-ufo.radius * 0.5, -ufo.radius * 0.45);
-          ctx.lineTo(-ufo.radius, -ufo.radius * 0.75); // Twin tail fin top
+          // Extended pronounced nose pointing forward
+          ctx.moveTo(ufo.radius * 1.3, 0);
+          ctx.lineTo(ufo.radius * 0.4, -ufo.radius * 0.25);
+          ctx.lineTo(-ufo.radius * 0.1, -ufo.radius * 0.9); // Forward swept wing tip
+          ctx.lineTo(-ufo.radius * 0.4, -ufo.radius * 0.45);
+          ctx.lineTo(-ufo.radius * 0.8, -ufo.radius * 0.7); // Twin tail fin top
           ctx.lineTo(-ufo.radius * 0.65, -ufo.radius * 0.2);
-          ctx.lineTo(-ufo.radius * 0.8, 0); // Tail engine core
+          ctx.lineTo(-ufo.radius * 0.9, 0); // Tail engine core
           ctx.lineTo(-ufo.radius * 0.65, ufo.radius * 0.2);
-          ctx.lineTo(-ufo.radius, ufo.radius * 0.75); // Twin tail fin bottom
-          ctx.lineTo(-ufo.radius * 0.5, ufo.radius * 0.45);
-          ctx.lineTo(-ufo.radius * 0.25, ufo.radius); // Forward swept wing tip
-          ctx.lineTo(ufo.radius * 0.2, ufo.radius * 0.35);
+          ctx.lineTo(-ufo.radius * 0.8, ufo.radius * 0.7); // Twin tail fin bottom
+          ctx.lineTo(-ufo.radius * 0.4, ufo.radius * 0.45);
+          ctx.lineTo(-ufo.radius * 0.1, ufo.radius * 0.9); // Forward swept wing tip
+          ctx.lineTo(ufo.radius * 0.4, ufo.radius * 0.25);
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
@@ -6390,77 +7001,88 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           ctx.strokeStyle = '#ffb733';
           ctx.lineWidth = 1.2;
           ctx.beginPath();
-          ctx.moveTo(ufo.radius * 0.6, 0);
-          ctx.lineTo(-ufo.radius * 0.4, -ufo.radius * 0.3);
-          ctx.moveTo(ufo.radius * 0.6, 0);
-          ctx.lineTo(-ufo.radius * 0.4, ufo.radius * 0.3);
-          ctx.moveTo(-ufo.radius * 0.2, 0);
-          ctx.lineTo(-ufo.radius * 0.65, -ufo.radius * 0.5);
-          ctx.moveTo(-ufo.radius * 0.2, 0);
-          ctx.lineTo(-ufo.radius * 0.65, ufo.radius * 0.5);
+          ctx.moveTo(ufo.radius * 0.7, 0);
+          ctx.lineTo(-ufo.radius * 0.3, -ufo.radius * 0.3);
+          ctx.moveTo(ufo.radius * 0.7, 0);
+          ctx.lineTo(-ufo.radius * 0.3, ufo.radius * 0.3);
+          ctx.moveTo(-ufo.radius * 0.1, 0);
+          ctx.lineTo(-ufo.radius * 0.6, -ufo.radius * 0.5);
+          ctx.moveTo(-ufo.radius * 0.1, 0);
+          ctx.lineTo(-ufo.radius * 0.6, ufo.radius * 0.5);
           ctx.stroke();
 
           // Angled Cockpit Visor Line
           ctx.fillStyle = '#261200';
           ctx.strokeStyle = '#FFCC00';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(ufo.radius * 0.55, -ufo.radius * 0.18);
-          ctx.lineTo(ufo.radius * 0.15, -ufo.radius * 0.25);
-          ctx.lineTo(ufo.radius * 0.15, ufo.radius * 0.25);
-          ctx.lineTo(ufo.radius * 0.55, ufo.radius * 0.18);
-          ctx.closePath();
-          ctx.fill();
-          ctx.stroke();
-
-          // Engine core highlight
-          ctx.fillStyle = '#FF9900';
-          ctx.shadowBlur = 10;
-          ctx.shadowColor = '#FF9900';
-          ctx.beginPath();
-          ctx.arc(-ufo.radius * 0.65, 0, 3.5, 0, Math.PI * 2);
-          ctx.fill();
-        } else if (isSwarmer) {
-          // Swarmer Drone: Compact insectoid craft with curved pincers, angled tail core, rapid rotation
-          ctx.rotate(ufo.angle);
-
-          // Insectoid chitin body
-          ctx.fillStyle = '#05230c';
-          ctx.strokeStyle = '#00FF66';
           ctx.lineWidth = 2;
           ctx.beginPath();
-          ctx.moveTo(ufo.radius * 0.5, 0);
-          ctx.lineTo(ufo.radius * 0.2, -ufo.radius * 0.5);
-          ctx.lineTo(-ufo.radius * 0.4, -ufo.radius * 0.6);
-          ctx.lineTo(-ufo.radius, 0); // Angled tail tip
-          ctx.lineTo(-ufo.radius * 0.4, ufo.radius * 0.6);
-          ctx.lineTo(ufo.radius * 0.2, ufo.radius * 0.5);
+          ctx.moveTo(ufo.radius * 0.65, -ufo.radius * 0.15);
+          ctx.lineTo(ufo.radius * 0.25, -ufo.radius * 0.22);
+          ctx.lineTo(ufo.radius * 0.25, ufo.radius * 0.22);
+          ctx.lineTo(ufo.radius * 0.65, ufo.radius * 0.15);
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
 
-          // Curved pincers
-          ctx.strokeStyle = '#66ff99';
-          ctx.lineWidth = 1.8;
+          // Boosted Engine Thruster Glow
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowBlur = 25;
+          ctx.shadowColor = '#FF3300';
           ctx.beginPath();
-          // Upper curved pincer
-          ctx.moveTo(ufo.radius * 0.2, -ufo.radius * 0.4);
-          ctx.quadraticCurveTo(ufo.radius * 1.2, -ufo.radius * 0.8, ufo.radius * 1.1, -ufo.radius * 0.15);
-          // Lower curved pincer
-          ctx.moveTo(ufo.radius * 0.2, ufo.radius * 0.4);
-          ctx.quadraticCurveTo(ufo.radius * 1.2, ufo.radius * 0.8, ufo.radius * 1.1, ufo.radius * 0.15);
+          ctx.ellipse(-ufo.radius * 0.85, 0, ufo.radius * 0.4, ufo.radius * 0.15, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Intense center of thruster
+          ctx.fillStyle = '#ffff00';
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = '#ffffff';
+          ctx.beginPath();
+          ctx.ellipse(-ufo.radius * 0.75, 0, ufo.radius * 0.2, ufo.radius * 0.08, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (isSwarmer) {
+          // Swarmer Drone: TRON-style Neon Dart
+          ctx.rotate(ufo.angle);
+
+          const pulse = (Math.sin(now * 0.01) + 1) / 2;
+          const neonGreen = '#00FF66';
+          const coreGreen = '#ccffcc';
+
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = neonGreen;
+
+          // Main sleek dart chassis
+          ctx.fillStyle = '#021008';
+          ctx.strokeStyle = neonGreen;
+          ctx.lineWidth = 1.5;
+          
+          ctx.beginPath();
+          ctx.moveTo(ufo.radius, 0); // Nose tip
+          ctx.lineTo(ufo.radius * 0.1, -ufo.radius * 0.4);
+          ctx.lineTo(-ufo.radius * 0.7, -ufo.radius * 0.5); // Rear wing tip top
+          ctx.lineTo(-ufo.radius * 0.3, 0); // Rear center inset
+          ctx.lineTo(-ufo.radius * 0.7, ufo.radius * 0.5); // Rear wing tip bottom
+          ctx.lineTo(ufo.radius * 0.1, ufo.radius * 0.4);
+          ctx.closePath();
+          ctx.fill();
           ctx.stroke();
 
-          // Angled tail core crystal
-          ctx.fillStyle = '#00FF66';
-          ctx.shadowBlur = 12;
-          ctx.shadowColor = '#00FF66';
+          // Internal circuitry/neon accent lines
+          ctx.strokeStyle = `rgba(0, 255, 102, ${0.4 + pulse * 0.6})`;
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(-ufo.radius * 0.3, 0);
-          ctx.lineTo(-ufo.radius * 0.6, -ufo.radius * 0.25);
-          ctx.lineTo(-ufo.radius * 0.85, 0);
-          ctx.lineTo(-ufo.radius * 0.6, ufo.radius * 0.25);
-          ctx.closePath();
+          ctx.moveTo(-ufo.radius * 0.2, 0);
+          ctx.lineTo(ufo.radius * 0.4, 0);
+          ctx.moveTo(0, -ufo.radius * 0.25);
+          ctx.lineTo(ufo.radius * 0.15, -ufo.radius * 0.15);
+          ctx.moveTo(0, ufo.radius * 0.25);
+          ctx.lineTo(ufo.radius * 0.15, ufo.radius * 0.15);
+          ctx.stroke();
+
+          // Glowing energy drive core at the rear
+          ctx.shadowBlur = 20;
+          ctx.fillStyle = coreGreen;
+          ctx.beginPath();
+          ctx.arc(-ufo.radius * 0.2, 0, ufo.radius * 0.15 + pulse * ufo.radius * 0.05, 0, Math.PI * 2);
           ctx.fill();
         } else {
           // --- TRON VECTOR RED HEXAGON ENEMY OVERHAUL ---
@@ -7116,13 +7738,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
         const bAngle = b.angle !== undefined ? b.angle : Math.atan2(b.vy, b.vx);
         ctx.rotate(bAngle);
+        
+        const isDreadnoughtActive = ufosRef.current.some(u => u.type === 'dreadnought');
+        if (!isDreadnoughtActive) {
+          ctx.shadowBlur = b.isLaser ? 20 : 15;
+          ctx.shadowColor = b.isLaser ? '#ff0055' : (b.color || '#00ffff');
+        }
 
         if (b.isLaser) {
           // Intense Beam Laser GFX
-          ctx.shadowBlur = 22;
-          ctx.shadowColor = '#ff0077';
-
-          // Outer Laser Beam Aura
           ctx.fillStyle = 'rgba(255, 0, 119, 0.35)';
           ctx.beginPath();
           ctx.ellipse(0, 0, 24, 7, 0, 0, Math.PI * 2);
@@ -7144,22 +7768,16 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           const tracerLen = b.size * 3.2;
           const tracerWidth = b.size * 1.2;
 
-          ctx.shadowBlur = 16;
-          ctx.shadowColor = b.color || '#00ffff';
-
           // Outer Plasma Bloom
-          const outerGrad = ctx.createLinearGradient(tracerLen, 0, -tracerLen, 0);
-          outerGrad.addColorStop(0, '#ffffff');
-          outerGrad.addColorStop(0.3, b.color || '#00ffff');
-          outerGrad.addColorStop(1, 'rgba(0, 240, 255, 0)');
-
-          ctx.fillStyle = outerGrad;
+          ctx.fillStyle = b.color || '#00ffff';
+          ctx.globalAlpha = 0.5;
           ctx.beginPath();
           ctx.ellipse(0, 0, tracerLen, tracerWidth, 0, 0, Math.PI * 2);
           ctx.fill();
 
           // Inner Bright Core
           ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 1;
           ctx.beginPath();
           ctx.ellipse(2, 0, tracerLen * 0.5, tracerWidth * 0.45, 0, 0, Math.PI * 2);
           ctx.fill();
@@ -7170,50 +7788,103 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
       // Enemy UFO Bullets (Alien Energy Plasma Orbs)
       ufoBulletsRef.current.forEach((ub) => {
+        const now = Date.now();
         ctx.save();
         ctx.translate(ub.x, ub.y);
         
         if (ub.isMine) {
-          ctx.shadowBlur = 25;
-          ctx.shadowColor = ub.color || '#ffaa00';
+          let mineColor = ub.color || '#ff2255'; // More dangerous neon crimson/pink
+          let pulseSpeed = 0.008;
+          let warningPulseIntensity = 0.25;
+          let warningRadiusColor = '255, 34, 85';
+
+          const ship = shipRef.current;
+          if (ship && ship.alive) {
+            const dist = Math.hypot(ship.x - ub.x, ship.y - ub.y);
+            if (dist < 220) { // Close proximity!
+              pulseSpeed = 0.035; // Fast frantic pulse
+              mineColor = '#ff0000'; // Pure bright red
+              warningPulseIntensity = 0.6; // Stronger flash
+              warningRadiusColor = '255, 0, 0';
+            }
+          }
+
+          ctx.shadowBlur = 30;
+          ctx.shadowColor = mineColor;
           
-          // Pulsing warning radius
-          const pulse = (Math.sin(Date.now() * 0.005) + 1) / 2;
-          ctx.strokeStyle = `rgba(255, 170, 0, ${0.1 + pulse * 0.3})`;
-          ctx.lineWidth = 1.5;
+          // Outer TRON Warning Pulse Ring (Danger Zone)
+          const pulse = (Math.sin(now * pulseSpeed) + 1) / 2;
+          ctx.strokeStyle = `rgba(${warningRadiusColor}, ${0.15 + pulse * warningPulseIntensity})`;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([10, 10]); // Techy dashed warning radius
           ctx.beginPath();
-          ctx.arc(0, 0, 120, 0, Math.PI * 2);
+          ctx.arc(0, 0, 110, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          
+          // Inner solid danger line
+          ctx.strokeStyle = `rgba(${warningRadiusColor}, ${0.05 + pulse * 0.15})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(0, 0, 100, 0, Math.PI * 2);
           ctx.stroke();
 
-          // Spiked geometric mine body
-          ctx.rotate(Date.now() * 0.002);
-          ctx.fillStyle = '#220000';
-          ctx.strokeStyle = '#ffaa00';
-          ctx.lineWidth = 2;
+          // Spiked geometric mine chassis (TRON Octagon)
+          ctx.rotate(now * 0.0015);
+          
+          // Base chassis
+          ctx.fillStyle = '#0a0a0a';
+          ctx.strokeStyle = mineColor;
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
           for (let i = 0; i < 8; i++) {
              const a = (i / 8) * Math.PI * 2;
-             const r = i % 2 === 0 ? ub.size : ub.size * 0.4;
+             const r = i % 2 === 0 ? ub.size * 1.2 : ub.size * 0.6; // Pronounced spikes
              ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
           }
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
 
+          // Inner mechanical ring
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.arc(0, 0, ub.size * 0.45, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Blazing White/Neon Core (Pulses intensely)
+          ctx.shadowBlur = 40;
+          ctx.shadowColor = mineColor;
           ctx.fillStyle = '#ffffff';
           ctx.beginPath();
-          ctx.arc(0, 0, ub.size * 0.25, 0, Math.PI * 2);
+          ctx.arc(0, 0, ub.size * 0.3 * (0.8 + pulse * 0.4), 0, Math.PI * 2);
           ctx.fill();
+          
+          // Crosshairs over core
+          ctx.strokeStyle = mineColor;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(-ub.size * 0.5, 0);
+          ctx.lineTo(ub.size * 0.5, 0);
+          ctx.moveTo(0, -ub.size * 0.5);
+          ctx.lineTo(0, ub.size * 0.5);
+          ctx.stroke();
         } else {
-          ctx.shadowBlur = 18;
-          ctx.shadowColor = '#ff3344';
-
           // Pulsing alien energy orb
-          ctx.fillStyle = 'rgba(255, 51, 68, 0.4)';
+          const isDreadnoughtActive = ufosRef.current.some(u => u.type === 'dreadnought');
+          if (!isDreadnoughtActive) {
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = ub.color || '#ff1133';
+          }
+          
+          ctx.fillStyle = ub.color || '#ff3344';
+          ctx.globalAlpha = 0.4;
           ctx.beginPath();
           ctx.arc(0, 0, ub.size * 2, 0, Math.PI * 2);
           ctx.fill();
 
+          ctx.globalAlpha = 1;
           ctx.fillStyle = '#ff1133';
           ctx.beginPath();
           ctx.arc(0, 0, ub.size * 1.2, 0, Math.PI * 2);
@@ -7610,8 +8281,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         ctx.restore();
       }
 
-      // Keyboard Controls Guide Overlay on game start
-      if (controlsHintTimerRef.current > 0) {
+      // Keyboard Controls Guide Overlay on game start (Desktop only)
+      if (controlsHintTimerRef.current > 0 && !isTouchDevice) {
         controlsHintTimerRef.current--;
         const timer = controlsHintTimerRef.current;
         const alpha = timer > 60 ? 1 : timer / 60;
@@ -7645,7 +8316,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         ctx.fillStyle = '#E6EDF3';
         const row1 = 'MOVE: [W]/[▲] Forward  •  [A][D]/[◄][►] Turn  •  [S]/[▼] Reverse';
         const row2 = 'ACTIONS: [SPACE] Fire • [B] EMP • [SHIFT] Warp • [M] Audio Toggle';
-        const row3 = '🚀 1UP BONUS: Earn +1 Extra Ship every 50,000 Score Points! (50K, 100K, 150K...)';
+        const row3 = '🚀 1UP BONUS: Earn +1 Extra Ship every 100,000 Score Points! (100K, 200K, 300K...)';
 
         ctx.fillText(row1, width / 2, boxY + 46);
         ctx.fillStyle = '#3FB950';

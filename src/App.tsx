@@ -14,6 +14,22 @@ import { GameMode, ControlScheme, HighScoreRecord, LifetimeStats, Achievement } 
 export default function App() {
   // Game Configuration State
   const [gameMode, setGameMode] = useState<GameMode>('classic');
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  useEffect(() => {
+    const checkTouch = () => {
+      const hasTouch =
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0 ||
+        (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+        window.innerWidth <= 1024;
+      setIsTouchDevice(hasTouch);
+    };
+    checkTouch();
+    window.addEventListener('resize', checkTouch);
+    return () => window.removeEventListener('resize', checkTouch);
+  }, []);
   const [controlScheme, setControlScheme] = useState<ControlScheme>('classic');
 
   // Audio & Graphics
@@ -453,6 +469,7 @@ export default function App() {
     <div className="relative w-screen h-screen overflow-hidden bg-[#0A0C10] text-[#E6EDF3] font-sans select-none">
       {/* Main Asteroids Canvas Engine */}
       <AsteroidsCanvas
+        isTouchDevice={isTouchDevice}
         key={gameKey}
         gameMode={gameMode}
         initialWave={wave}
@@ -510,6 +527,7 @@ export default function App() {
         isPaused={isPaused}
         isMuted={isMuted}
         isShipNearHUD={isShipNearHud}
+        isTouchDevice={isTouchDevice}
         onTogglePause={() => setIsPaused((p) => !p)}
         onToggleMute={handleToggleMute}
         onOpenSettings={() => setShowSettings(true)}
@@ -519,6 +537,8 @@ export default function App() {
         onToggleFullscreen={handleToggleFullscreen}
       />
 
+      {isTouchDevice && (
+      <>
       {/* Mobile/Tablet Touch Controls */}
       <TouchControls
         onThrustStart={() => {
@@ -568,6 +588,8 @@ export default function App() {
         empCount={empCount}
         hyperspaceReady={hyperspaceCooldown <= 0}
       />
+      </>
+      )}
 
       {/* Game Over Modal */}
       {isGameOver && (
