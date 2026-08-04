@@ -29,7 +29,7 @@ export const LeaderboardModal: React.FC<LeaderboardModalProps> = ({
 
   if (!isOpen) return null;
 
-  const accuracy = stats.shotsFired > 0 ? Math.round((stats.shotsHit / stats.shotsFired) * 100) : 0;
+  const accuracy = stats.shotsFired > 0 ? Math.min(100, Math.max(0, Math.round((stats.shotsHit / stats.shotsFired) * 100))) : 0;
 
   const handleSaveName = () => {
     const trimmed = editingName.trim().toUpperCase().slice(0, 15) || 'PILOT_ACE';

@@ -2,6 +2,15 @@ import React from 'react';
 import { Volume2, VolumeX, Pause, Play, Settings, Trophy, Award, Zap, Shield, Sparkles, Target, Bomb, Maximize, Minimize } from 'lucide-react';
 import { GameMode } from '../types';
 
+const MODE_LABELS: Record<GameMode, string> = {
+  classic: 'CLASSIC',
+  survival: 'SURVIVAL',
+  zen: 'ZEN',
+  boss_rush: 'WAVE 5 DREADNOUGHT',
+  wave_10_boss: 'WAVE 10 CORE SEVERANCE',
+  wave_15_boss: 'WAVE 15 GRID ARCHITECT',
+};
+
 interface HUDProps {
   score: number;
   highScore: number;
@@ -88,7 +97,7 @@ export const HUD: React.FC<HUDProps> = ({
             <div>
               <div className="text-[10px] font-mono text-[#8B949E]">MODE</div>
               <div className="text-xs font-mono font-bold text-[#3FB950] uppercase">
-                 {mode === 'wave_10_boss' ? 'CORE SEVERANCE' : mode.replace('_', ' ')}
+                 {MODE_LABELS[mode]}
               </div>
             </div>
           </div>

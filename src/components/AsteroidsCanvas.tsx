@@ -189,6 +189,7 @@ interface AsteroidsCanvasProps {
   isTouchDevice?: boolean;
   gameMode: GameMode;
   initialWave?: number;
+  initialLives: number;
   controlScheme: ControlScheme;
   isPaused: boolean;
   crtFilter: boolean;
@@ -203,8 +204,18 @@ interface AsteroidsCanvasProps {
   onActivePowerupsUpdate: (powerups: any) => void;
   onHudProximityUpdate?: (isNear: boolean) => void;
   onGameOver: (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => void;
-  onStatsRecord: (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number) => void;
+  onStatsRecord: (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number, maxCombo: number, bossDamageDealt: number) => void;
   onUnlockAchievement: (id: string) => void;
+}
+
+type ScheduledEventScope = 'wave' | 'respawn';
+
+interface ScheduledGameEvent {
+  id: number;
+  scope: ScheduledEventScope;
+  waveToken?: number;
+  remainingMs: number;
+  callback: () => void;
 }
 
 export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
@@ -214,6 +225,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   // to avoid re-rendering and stealing focus from this canvas component.
   gameMode,
   initialWave,
+  initialLives,
   controlScheme,
   isPaused,
   crtFilter,
@@ -232,11 +244,38 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   onUnlockAchievement
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [showContinueOffer, setShowContinueOffer] = useState(false);
+  const dreadnoughtHitFeedbackNextMsRef = useRef(0);
+  const dreadnoughtHitTextNextMsRef = useRef(0);
+  const dreadnoughtImpactRingNextMsRef = useRef(0);
+  const dreadnoughtGapBonusRecordedRef = useRef<WeakSet<Bullet>>(new WeakSet());
   const isInitializedRef = useRef(false);
   const isNearHudRef = useRef(false);
   const bossEncounteredRef = useRef(false);
+  const architectHitFeedbackNextMsRef = useRef(0);
+  const architectHitTextNextMsRef = useRef(0);
+  const architectImpactRingNextMsRef = useRef(0);
+  const coreSeveranceHitFeedbackNextMsRef = useRef(0);
+  const coreSeveranceHitTextNextMsRef = useRef(0);
+  const coreSeveranceImpactRingNextMsRef = useRef(0);
   const controlsHintTimerRef = useRef(360); // 6 seconds on screen controls guide
-  const empRechargeTimerRef = useRef(3600); // 60 seconds auto recharge timer for EMP bomb
+  const empRechargeTimerRef = useRef(3600);
+  const isPausedRef = useRef(isPaused);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]); // 60 seconds auto recharge timer for EMP bomb
+
+  const scheduledEventsRef = useRef<ScheduledGameEvent[]>([]);
+  const nextEventIdRef = useRef<number>(1);
+  const waveTokenRef = useRef<number>(0);
+  const lastSchedulerTimeRef = useRef<number>(performance.now());
+
+  useEffect(() => {
+    return () => {
+      scheduledEventsRef.current = [];
+      waveTokenRef.current = -1;
+      lastSchedulerTimeRef.current = performance.now();
+    };
+  }, []);
+
 
   // Stable callbacks ref to prevent effect re-triggering & unwanted resets
   const callbacksRef = useRef({
@@ -276,7 +315,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     score: 0,
     nextExtraLifeScore: 100000,
     wave: initialWave || (gameMode === 'boss_rush' ? 5 : 1),
-    lives: gameMode === 'zen' ? 99 : 3,
+    lives: initialLives,
     empCount: 1,
     hyperspaceCooldown: 0,
     gameRunning: true,
@@ -299,7 +338,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     empUsed: 0,
     bossDamageDealt: 0,
     bossMinesDestroyed: 0,
-    consecutiveHits: 0
+    consecutiveHits: 0,
+    gridArchitectContinueUsed: false
   });
 
   // Power-up duration timers (in frames)
@@ -443,6 +483,29 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       maxHealth: 18,
       damageFlash: 0
     };
+  }, []);
+
+  const scheduleGameEvent = useCallback((delayMs: number, scope: ScheduledEventScope, callback: () => void): number => {
+    const id = nextEventIdRef.current++;
+    const event: ScheduledGameEvent = {
+      id,
+      scope,
+      remainingMs: delayMs,
+      callback
+    };
+    if (scope === 'wave') {
+      event.waveToken = waveTokenRef.current;
+    }
+    scheduledEventsRef.current.push(event);
+    return id;
+  }, []);
+
+  const cancelScheduledEvents = useCallback((scope?: ScheduledEventScope) => {
+    if (scope) {
+      scheduledEventsRef.current = scheduledEventsRef.current.filter(e => e.scope !== scope);
+    } else {
+      scheduledEventsRef.current = [];
+    }
   }, []);
 
   // Trigger Big Screen Announcement Banner
@@ -652,6 +715,171 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     });
   };
 
+  const emitDreadnoughtHitFeedback = useCallback((x: number, y: number, type: 'shield' | 'armour' | 'vulnerable', text: string) => {
+    const now = performance.now();
+    
+    // Throttle floating text
+    if (now >= dreadnoughtHitTextNextMsRef.current && floatingTextsRef.current.length < 24) {
+      const color = type === 'shield' ? '#00ffff' : type === 'vulnerable' ? '#ffff00' : '#ff00ff';
+      const size = type === 'shield' ? 12 : type === 'vulnerable' ? 16 : 13;
+      addFloatingText(x, y - (type === 'shield' ? 12 : 15), text, color, size);
+      dreadnoughtHitTextNextMsRef.current = now + 220;
+    }
+
+    // Throttle particles and sound
+    const pThrottle = type === 'shield' ? 130 : type === 'armour' ? 120 : 90;
+    if (now >= dreadnoughtHitFeedbackNextMsRef.current) {
+      if (type === 'shield') soundEngine.playSound('shield_hit');
+      else if (type === 'armour') soundEngine.playSound('laser');
+      else soundEngine.playSound('heavy_explode');
+      
+      const availableParticleSlots = Math.max(0, 145 - particlesRef.current.length);
+      if (availableParticleSlots > 0) {
+        let maxP = type === 'shield' ? 6 : type === 'armour' ? 7 : 10;
+        const count = Math.min(maxP, availableParticleSlots);
+        for (let i = 0; i < count; i++) {
+          const colors = type === 'shield' ? ['#00ffff', '#ffffff'] :
+                         type === 'armour' ? ['#00ffff', '#ff00ff', '#ffffff'] :
+                         ['#ffaa00', '#ffff00', '#ffffff'];
+          particlesRef.current.push({
+            x: x + (Math.random() - 0.5) * 10,
+            y: y + (Math.random() - 0.5) * 10,
+            vx: (Math.random() - 0.5) * (type === 'vulnerable' ? 8 : 6),
+            vy: (Math.random() - 0.5) * (type === 'vulnerable' ? 8 : 6),
+            life: 12 + Math.random() * 10,
+            maxLife: 22,
+            size: 1.5 + Math.random() * 2.5,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            shape: 'spark'
+          });
+        }
+      }
+      
+      if (type === 'vulnerable' && gameStateRef.current.shakeEnabled) {
+        gameStateRef.current.shakeTimer = Math.max(gameStateRef.current.shakeTimer, 2);
+      }
+      
+      dreadnoughtHitFeedbackNextMsRef.current = now + pThrottle;
+    }
+    
+    // Throttle impact rings
+    const rThrottle = type === 'shield' ? 240 : type === 'armour' ? 250 : 170;
+    if (now >= dreadnoughtImpactRingNextMsRef.current) {
+      const radius = type === 'shield' ? 38 : type === 'armour' ? 30 : 55;
+      const color = type === 'shield' ? '#00ffff' : type === 'armour' ? '#ff00ff' : '#ffff00';
+      addShockwave(x, y, radius, color);
+      dreadnoughtImpactRingNextMsRef.current = now + rThrottle;
+    }
+  }, [addShockwave]);
+
+  const emitArchitectHitFeedback = useCallback((x: number, y: number, color: string, text: string, isCritical: boolean) => {
+    const now = performance.now();
+    
+    // Throttle visual and audio
+    if (now >= architectHitFeedbackNextMsRef.current) {
+      architectHitFeedbackNextMsRef.current = now + (isCritical ? 90 : 120);
+      
+      const availableParticleSlots = Math.max(0, 145 - particlesRef.current.length);
+      const isReflection = text === 'REFLECTED';
+      const targetCount = isCritical ? 10 : (isReflection ? 6 : 7);
+      const numParticles = Math.min(availableParticleSlots, targetCount);
+      
+      for (let p = 0; p < numParticles; p++) {
+        const pAngle = Math.random() * Math.PI * 2;
+        const pSpeed = 2 + Math.random() * 4;
+        let pColor = color;
+        if (isCritical) {
+           const r = Math.random();
+           pColor = r < 0.33 ? '#ffffff' : r < 0.66 ? '#ffff00' : '#00ffff';
+        } else if (isReflection) {
+           pColor = Math.random() > 0.5 ? '#ffffff' : '#00ffff';
+        } else {
+           const r = Math.random();
+           pColor = r < 0.33 ? '#ff00ff' : r < 0.66 ? '#ffffff' : '#00ffff';
+        }
+
+        particlesRef.current.push({
+          x: x + (Math.random() - 0.5) * 10,
+          y: y + (Math.random() - 0.5) * 10,
+          vx: Math.cos(pAngle) * pSpeed,
+          vy: Math.sin(pAngle) * pSpeed,
+          life: 12 + Math.random() * 10,
+          maxLife: 22,
+          size: 1.5 + Math.random() * 2.5,
+          color: pColor,
+          shape: 'spark'
+        });
+      }
+      
+      if (isCritical) {
+        soundEngine.playSound('heavy_explode');
+        gameStateRef.current.shakeTimer = Math.max(gameStateRef.current.shakeTimer, 2);
+      } else if (isReflection) {
+        soundEngine.playSound('shield_hit');
+      } else {
+        soundEngine.playSound('laser');
+      }
+    }
+
+    if (now >= architectImpactRingNextMsRef.current) {
+      const isReflection = text === 'REFLECTED';
+      architectImpactRingNextMsRef.current = now + (isCritical ? 180 : (isReflection ? 220 : 260));
+      const r = isCritical ? 55 : (isReflection ? 38 : 32);
+      addShockwave(x, y, r, color);
+    }
+
+    if (now >= architectHitTextNextMsRef.current && floatingTextsRef.current.length < 24) {
+      architectHitTextNextMsRef.current = now + 220;
+      addFloatingText(x, y - 10, text, color, isCritical ? 24 : 16);
+    }
+  }, [addShockwave]);
+
+  const emitCoreSeveranceHitFeedback = useCallback((x: number, y: number, color: string, text: string, type: 'immune' | 'node' | 'vulnerable') => {
+    const now = performance.now();
+    
+    if (now >= coreSeveranceHitFeedbackNextMsRef.current) {
+      coreSeveranceHitFeedbackNextMsRef.current = now + (type === 'vulnerable' ? 120 : 140);
+      
+      const availableParticleSlots = Math.max(0, 145 - particlesRef.current.length);
+      const targetCount = type === 'vulnerable' ? 8 : 5;
+      const numParticles = Math.min(availableParticleSlots, targetCount);
+      
+      for (let p = 0; p < numParticles; p++) {
+        particlesRef.current.push({
+          x: x + (Math.random() - 0.5) * 10,
+          y: y + (Math.random() - 0.5) * 10,
+          vx: (Math.random() - 0.5) * (type === 'vulnerable' ? 8 : 4),
+          vy: (Math.random() - 0.5) * (type === 'vulnerable' ? 8 : 4),
+          life: 12 + Math.random() * 8,
+          maxLife: 20,
+          size: 1.5 + Math.random() * 1.5,
+          color: color,
+          shape: 'spark'
+        });
+      }
+
+      if (type === 'vulnerable') {
+         soundEngine.playSound('laser');
+         if (gameStateRef.current.shakeEnabled) {
+            gameStateRef.current.shakeTimer = Math.max(gameStateRef.current.shakeTimer, 2);
+         }
+      } else {
+         soundEngine.playSound('shield_hit');
+      }
+    }
+
+    if (now >= coreSeveranceImpactRingNextMsRef.current) {
+      coreSeveranceImpactRingNextMsRef.current = now + (type === 'vulnerable' ? 240 : 300);
+      const r = type === 'vulnerable' ? 45 : 30;
+      addShockwave(x, y, r, color);
+    }
+
+    if (now >= coreSeveranceHitTextNextMsRef.current && floatingTextsRef.current.length < 24) {
+      coreSeveranceHitTextNextMsRef.current = now + 220;
+      addFloatingText(x, y - (type === 'vulnerable' ? 20 : 12), text, color, type === 'vulnerable' ? 20 : 14);
+    }
+  }, [addShockwave]);
+
   // Helper to add score and check for 15000 pts extra ship reward with dynamic Arcade Combo Multipliers
   const addScore = useCallback((amount: number, isComboTrigger: boolean = true) => {
     const state = gameStateRef.current;
@@ -701,32 +929,40 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       state.nextExtraLifeScore = 100000;
     }
 
-    while (state.score >= state.nextExtraLifeScore) {
-      state.lives++;
-      callbacksRef.current.onLivesUpdate(state.lives);
-      soundEngine.playSound('golden');
+    if (gameMode !== 'survival') {
+      while (state.score >= state.nextExtraLifeScore) {
+        state.lives++;
+        callbacksRef.current.onLivesUpdate(state.lives);
+        soundEngine.playSound('golden');
 
-      triggerBigBanner(
-        '🚀 EXTRA SHIP GAINED!',
-        `SCORE THRESHOLD ${state.nextExtraLifeScore.toLocaleString()} REACHED • LIVES: ${state.lives}`,
-        '#00ff88',
-        'rgba(0, 255, 136, 0.95)',
-        110
-      );
+        triggerBigBanner(
+          '🚀 EXTRA SHIP GAINED!',
+          `SCORE THRESHOLD ${state.nextExtraLifeScore.toLocaleString()} REACHED • LIVES: ${state.lives}`,
+          '#00ff88',
+          'rgba(0, 255, 136, 0.95)',
+          110
+        );
 
-      const ship = shipRef.current;
-      if (ship) {
-        addFloatingText(ship.x, ship.y - 35, '1UP! +1 EXTRA SHIP', '#00ff88', 22);
-        addShockwave(ship.x, ship.y, 160, '#00ff88');
+        const ship = shipRef.current;
+        if (ship) {
+          addFloatingText(ship.x, ship.y - 35, '1UP! +1 EXTRA SHIP', '#00ff88', 22);
+          addShockwave(ship.x, ship.y, 160, '#00ff88');
+        }
+
+        state.nextExtraLifeScore += 100000;
       }
-
-      state.nextExtraLifeScore += 100000;
     }
-  }, [triggerBigBanner]);
+  }, [triggerBigBanner, gameMode]);
 
-  const recordShotHit = useCallback(() => {
+  const recordAccuracyHit = useCallback((bullet: Bullet) => {
+    if (!bullet.countsForAccuracy || bullet.accuracyHitRecorded) return;
+    bullet.accuracyHitRecorded = true;
+    gameStateRef.current.shotsHit++;
+  }, []);
+
+  const recordShotHit = useCallback((bullet: Bullet) => {
+    recordAccuracyHit(bullet);
     const state = gameStateRef.current;
-    state.shotsHit++;
     state.consecutiveHits++;
     if (state.consecutiveHits > 0 && state.consecutiveHits % 10 === 0) {
       addScore(100, true);
@@ -735,7 +971,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         addFloatingText(ship.x, ship.y - 45, '🎯 SHARPSHOOTER +100', '#ffd700', 17);
       }
     }
-  }, [addScore, addFloatingText]);
+  }, [addScore, addFloatingText, recordAccuracyHit]);
 
   // Generate Offscreen Canvas Buffer for TRON Polyhedral Light Construct Asteroids (60 FPS Performance Optimization)
   const generateAsteroidOffscreenCanvas = (a: Asteroid, isHit = false): HTMLCanvasElement => {
@@ -1169,6 +1405,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   };
 
   const spawnWave = (waveNum: number) => {
+    waveTokenRef.current++;
+    cancelScheduledEvents('wave');
+
     blackHolesRef.current = [];
     nebulasRef.current = [];
     plasmaCoresRef.current = [];
@@ -1190,53 +1429,74 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       const w = canvasRef.current?.width || window.innerWidth;
       const h = canvasRef.current?.height || window.innerHeight;
       
-      const isTriadProtocol = waveNum % 15 === 0;
-      const isCoreSeverance = !isTriadProtocol && waveNum % 10 === 0;
-      const isDreadnought = !isTriadProtocol && !isCoreSeverance;
+      const isTechnoking = waveNum % 15 === 0;
+      const isCoreSeverance = !isTechnoking && waveNum % 10 === 0;
+      const isDreadnought = !isTechnoking && !isCoreSeverance;
 
       // Safe spawn: center horizontally, upper part vertically
       const safeX = w / 2;
 
       soundEngine.playUfoAlarm();
 
-      if (isTriadProtocol) {
-         const cx = safeX;
-         const cy = Math.max(h * 0.35, 250);
-         const triadRadius = 220; // distance from center of formation
-         const coreHp = 2000 + Math.floor(waveNum / 15) * 800;
-         
-         for (let i = 0; i < 3; i++) {
-             ufosRef.current.push({
-                 id: 'boss-triad-' + i,
-                 x: cx + Math.cos(i * (Math.PI*2/3) - Math.PI/2) * triadRadius,
-                 y: cy + Math.sin(i * (Math.PI*2/3) - Math.PI/2) * triadRadius,
-                 vx: 0,
-                 vy: 0,
-                 radius: 55,
-                 speed: 1.5,
-                 shootTimer: i * 40,
-                 type: 'triad_core',
-                 health: coreHp,
-                 maxHealth: coreHp,
-                 angle: i * (Math.PI*2/3), // Used for formation positioning
-                 shieldAngle: 0, // Used to track linking status (0 = linked to next, etc)
-                 isBoss: true, // Mark all as boss to share health bar (logic will aggregate)
-                 bossPhase: 1,
-                 bossState: 'active',
-                 behaviorTimer: 0,
-                 pulseTimer: 0,
-                 chargeTimer: 0
-             });
-         }
+      if (isTechnoking) {
+         architectHitFeedbackNextMsRef.current = 0;
+         architectHitTextNextMsRef.current = 0;
+         architectImpactRingNextMsRef.current = 0;
+         const bossHp = 6000 + Math.floor(waveNum / 15) * 1500;
+         const boss: UFO = {
+            id: 'boss-technoking-' + Math.random(),
+            x: safeX,
+            y: Math.max(h * 0.28, 220),
+            vx: 0,
+            vy: 0,
+            radius: 115,
+            speed: 1.2,
+            shootTimer: 0,
+            type: 'technoking',
+            health: bossHp,
+            maxHealth: bossHp,
+            angle: 0,
+            faceRotation: 0,
+            isBoss: true,
+            bossPhase: 1,
+            laserSweepTelegraph: 0,
+            laserSweepFiring: 0,
+            laserSweepRecovery: 0,
+            architectRecoveryCount: 0,
+            laserSweepAngle: Math.PI / 2,
+            tweetStormTimer: 0,
+            marsCannonWarning: 0,
+            marsCannonFiring: 0,
+            marsTargetX: safeX,
+            marsTargetY: h * 0.75,
+            gravityPulseTimer: 0,
+            gravityPulseActive: 0,
+            stockTickerWarning: 0,
+            stockTickerFiring: 0,
+            stockTickerY: [],
+            spiralTimer: 0,
+            droneSpawnTimer: 0
+         };
+         ufosRef.current = [boss];
          
          triggerBigBanner(
-            '⚠️ EXTREME THREAT DETECTED ⚠️',
-            `TRIAD PROTOCOL MK-${Math.floor(waveNum / 15)} INBOUND • SEVER THE LINKS TO WEAKEN`,
+            'THE GRID ARCHITECT',
+            'SYSTEM CONTROL: ABSOLUTE • TARGET THE LUMINOUS CORE',
             '#00ffff',
             'rgba(0, 255, 255, 0.95)',
-            200
+            110
          );
       } else {
+         if (isDreadnought) {
+            dreadnoughtHitFeedbackNextMsRef.current = 0;
+            dreadnoughtHitTextNextMsRef.current = 0;
+            dreadnoughtImpactRingNextMsRef.current = 0;
+            dreadnoughtGapBonusRecordedRef.current = new WeakSet<Bullet>();
+         } else if (isCoreSeverance) {
+            coreSeveranceHitFeedbackNextMsRef.current = 0;
+            coreSeveranceHitTextNextMsRef.current = 0;
+            coreSeveranceImpactRingNextMsRef.current = 0;
+         }
          const bossHp = isCoreSeverance ? 2500 + Math.floor(waveNum / 10) * 800 : 2500 + Math.floor(waveNum / 5) * 850;
          
          const boss: UFO = {
@@ -1259,13 +1519,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             bossStateTimer: 180,
             chargeTimer: 0,
             behaviorTimer: 0,
-            gridSweepTelegraph: 0,
-            gridSweepFiring: 0,
-            gridSweepAngle: Math.PI / 2,
-            laserChargeProgress: 0,
-            laserFiringTimer: 0,
-            laserTargetX: w / 2,
-            laserTargetY: h,
             pulseTimer: 0
          };
 
@@ -1390,50 +1643,50 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       const comboType = waveNum % 5;
       if (comboType === 1) {
         // Combination 1: Black Hole Singularity + Void Swarmers
-        setTimeout(() => spawnBlackHole(), 3500);
-        setTimeout(() => spawnUfoEnemy('swarmer'), 5500);
-        setTimeout(() => {
+        scheduleGameEvent(3500, 'wave', () => spawnBlackHole());
+        scheduleGameEvent(5500, 'wave', () => spawnUfoEnemy('swarmer'));
+        scheduleGameEvent(1000, 'wave', () => {
           triggerBigBanner('⚠️ TACTICAL PRESSURE: SINGULARITY & SWARMERS', 'GRAVITATIONAL PULL COMBINED WITH VOID SWARM ATTACK', '#a855f7', 'rgba(168, 85, 247, 0.9)', 120);
-        }, 1000);
+        });
       } else if (comboType === 2) {
         // Combination 2: Ionizing Nebula + Stalker Hunter Interceptors
-        setTimeout(() => spawnUfoEnemy('hunter'), 4000);
-        setTimeout(() => spawnUfoEnemy('scout'), 6000);
-        setTimeout(() => {
+        scheduleGameEvent(4000, 'wave', () => spawnUfoEnemy('hunter'));
+        scheduleGameEvent(6000, 'wave', () => spawnUfoEnemy('scout'));
+        scheduleGameEvent(1000, 'wave', () => {
           triggerBigBanner('⚠️ TACTICAL PRESSURE: EMP NEBULA & HUNTERS', 'HUD DISRUPTED WHILE AGGRESSIVE STALKERS ENGAGE', '#ff00ff', 'rgba(255, 0, 255, 0.9)', 120);
-        }, 1000);
+        });
       } else if (comboType === 3) {
         // Combination 3: Binary Plasma Core + Mothership artillery
-        setTimeout(() => spawnBinaryPlasmaCore(), 3000);
-        setTimeout(() => spawnUfoEnemy('mothership'), 5000);
-        setTimeout(() => {
+        scheduleGameEvent(3000, 'wave', () => spawnBinaryPlasmaCore());
+        scheduleGameEvent(5000, 'wave', () => spawnUfoEnemy('mothership'));
+        scheduleGameEvent(1000, 'wave', () => {
           triggerBigBanner('⚠️ TACTICAL PRESSURE: PLASMA CORES & MOTHERSHIP', 'DUAL STELLAR CORES SURROUNDED BY HEAVY ALIEN ARTILLERY', '#38bdf8', 'rgba(56, 189, 248, 0.9)', 120);
-        }, 1000);
+        });
       } else if (comboType === 4) {
         // Combination 4: Multi-UFO Priority Threat (Hunter + Swarmers)
-        setTimeout(() => spawnUfoEnemy('hunter'), 3000);
-        setTimeout(() => spawnUfoEnemy('swarmer'), 5000);
-        setTimeout(() => {
+        scheduleGameEvent(3000, 'wave', () => spawnUfoEnemy('hunter'));
+        scheduleGameEvent(5000, 'wave', () => spawnUfoEnemy('swarmer'));
+        scheduleGameEvent(1000, 'wave', () => {
           triggerBigBanner('⚠️ TACTICAL PRESSURE: DUAL ALIEN ASSAULT', 'PRIORITIZE TARGETS BETWEEN STALKERS AND SWARM PACKS', '#ff4444', 'rgba(255, 68, 68, 0.9)', 120);
-        }, 1000);
+        });
       } else {
         // Combination 5: Heavy Hazard Zone (Black Hole + Plasma Core + Scout)
-        setTimeout(() => spawnBlackHole(), 3000);
-        setTimeout(() => spawnBinaryPlasmaCore(), 6000);
-        setTimeout(() => spawnUfoEnemy('scout'), 8000);
-        setTimeout(() => {
+        scheduleGameEvent(3000, 'wave', () => spawnBlackHole());
+        scheduleGameEvent(6000, 'wave', () => spawnBinaryPlasmaCore());
+        scheduleGameEvent(8000, 'wave', () => spawnUfoEnemy('scout'));
+        scheduleGameEvent(1000, 'wave', () => {
           triggerBigBanner('⚠️ HAZARD SECTOR: ANOMALY CLUSTER', 'MULTIPLE SINGULARITIES & PLASMA HAZARDS ACTIVE', '#e11d48', 'rgba(225, 29, 72, 0.9)', 120);
-        }, 1000);
+        });
       }
     } else {
       // Rare chance for early black hole on waves 3-5
       if (waveNum >= 3 && Math.random() < 0.35) {
-        setTimeout(() => spawnBlackHole(), 6000);
+        scheduleGameEvent(6000, 'wave', () => spawnBlackHole());
       }
 
       // High energy Binary Plasma Core hazard spawn (Wave 2+)
       if (waveNum >= 2 && Math.random() < 0.45) {
-        setTimeout(() => spawnBinaryPlasmaCore(), 4000);
+        scheduleGameEvent(4000, 'wave', () => spawnBinaryPlasmaCore());
       }
     }
 
@@ -1559,6 +1812,36 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     });
   }, []);
 
+  const spawnArchitectSupportCache = useCallback((types: Collectible['type'][], label: string) => {
+    const canvas = canvasRef.current;
+    const ship = shipRef.current;
+    if (!canvas || !ship || !ship.alive) return;
+
+    const baseX = Math.max(90, Math.min(canvas.width - 90, ship.x + (Math.random() - 0.5) * 140));
+    const baseY = Math.max(130, Math.min(canvas.height - 110, ship.y - 90));
+
+    let spawnedCount = 0;
+    types.forEach((type, index) => {
+      const offsetX = types.length > 1 ? (index - (types.length - 1) / 2) * 50 : 0;
+      let sx = baseX + offsetX;
+      sx = Math.max(90, Math.min(canvas.width - 90, sx));
+      
+      spawnCollectible(sx, baseY, type);
+      const newCol = collectiblesRef.current[collectiblesRef.current.length - 1];
+      if (newCol) {
+        newCol.life = 900;
+        newCol.vx *= 0.4;
+        newCol.vy *= 0.4;
+      }
+      spawnedCount++;
+    });
+    
+    if (spawnedCount > 0) {
+      addFloatingText(baseX, baseY - 25, label, '#00ffff', 18);
+      soundEngine.playSound('golden');
+    }
+  }, [spawnCollectible, addFloatingText]);
+
   // Destroy UFO Helper
   const destroyUfo = useCallback((ufo: UFO, points: number) => {
     addScore(points);
@@ -1574,15 +1857,17 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       }
     }
 
-    createBigExplosion(ufo.x, ufo.y);
+    const isBossDeath = !!ufo.isBoss;
 
-    const isFinalTriad = ufo.type === 'triad_core' && ufosRef.current.filter(u => u.type === 'triad_core').length <= 1;
-    const isBossDeath = (ufo.isBoss && ufo.type !== 'triad_core') || isFinalTriad;
+    if (!isBossDeath) {
+      createBigExplosion(ufo.x, ufo.y);
+    }
 
     if (isBossDeath) {
-      soundEngine.playSound('heavy_explode');
-      createBigExplosion(ufo.x, ufo.y, '#ff0055');
-      addShockwave(ufo.x, ufo.y, 400, '#ff0055');
+      const color = ufo.type === 'technoking' ? '#ff00ff' : (ufo.type === 'core_severance' ? '#A371F7' : '#ff0055');
+      createBigExplosion(ufo.x, ufo.y, color);
+      const shockwaveRadius = ufo.type === 'technoking' ? 450 : 320;
+      addShockwave(ufo.x, ufo.y, shockwaveRadius, color);
       
       callbacksRef.current.onUnlockAchievement('boss_slayer');
 
@@ -1596,16 +1881,42 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         spawnCollectible(cx, cy, dropType);
       });
 
-      addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `+${points} BOSS DESTROYED!`, '#ff0055', 28);
+      addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `+${points} BOSS DESTROYED!`, '#ff00ff', 28);
       addFloatingText(ufo.x, ufo.y + ufo.radius + 40, '🎁 EXOTIC POWERUP CACHE UNLOCKED!', '#ffd700', 18);
 
-      triggerBigBanner(
-        '💥 BOSS DESTROYED! 💥',
-        `VICTORY! WAVE ${gameStateRef.current.wave} CLEARED • +${points} BONUS PTS!`,
-        '#ff0055',
-        'rgba(255, 0, 85, 0.95)',
-        140
-      );
+      if (ufo.type === 'technoking') {
+        for (let i = 0; i < 8; i++) {
+          setTimeout(() => {
+            if (!canvasRef.current) return;
+            const ex = ufo.x + (Math.random() - 0.5) * 200;
+            const ey = ufo.y + (Math.random() - 0.5) * 200;
+            createBigExplosion(ex, ey, Math.random() > 0.5 ? '#ff00ff' : '#00ffff');
+            addShockwave(ex, ey, 150 + Math.random() * 150, '#ff00ff');
+          }, i * 150);
+        }
+        setTimeout(() => {
+          if (!canvasRef.current) return;
+          createBigExplosion(ufo.x, ufo.y, '#ffffff');
+          addShockwave(ufo.x, ufo.y, 600, '#ffffff');
+          addShockwave(ufo.x, ufo.y, 800, '#ff00ff');
+        }, 1200);
+
+        triggerBigBanner(
+          'THE GRID ARCHITECT DEFEATED',
+          'SYSTEM CONTROL RELEASED',
+          '#ff00ff',
+          'rgba(255, 0, 255, 0.95)',
+          220
+        );
+      } else {
+        triggerBigBanner(
+          '💥 BOSS DESTROYED! 💥',
+          `VICTORY! WAVE ${gameStateRef.current.wave} CLEARED • +${points} BONUS PTS!`,
+          '#ff0055',
+          'rgba(255, 0, 85, 0.95)',
+          140
+        );
+      }
 
       callbacksRef.current.onUnlockAchievement('boss_slayer');
     } else {
@@ -1642,9 +1953,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       } else if (ufo.type === 'swarmer') {
         if (Math.random() < 0.4) spawnCollectible(ufo.x, ufo.y, 'triple');
         addFloatingText(ufo.x, ufo.y - 18, `+${points} SWARMER CLEARED!`, '#38bdf8', 16);
-      } else if (ufo.type === 'triad_core') {
-        // Handled in damage logic, just points here
-        addFloatingText(ufo.x, ufo.y + 20, `+${points} CORE SECURED!`, '#00ffff', 18);
+      } else if (ufo.type === 'techno_drone') {
+        addFloatingText(ufo.x, ufo.y + 15, `+${points} DRONE DOWN!`, '#00ffff', 16);
       } else {
         if (Math.random() < 0.6) spawnCollectible(ufo.x, ufo.y, 'golden');
         addFloatingText(ufo.x, ufo.y - 20, `+${points} SCOUT DESTROYED!`, '#38bdf8', 18);
@@ -1921,6 +2231,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
   // Trigger EMP Shockwave
   const triggerEmp = useCallback(() => {
+    if (isPausedRef.current || !gameStateRef.current.gameRunning) return;
     if (gameStateRef.current.empCount <= 0 || !shipRef.current.alive) return;
 
     if (isShipInNebulaRef.current) {
@@ -2007,6 +2318,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
   // Hyperspace Emergency Jump
   const triggerHyperspace = useCallback(() => {
+    if (isPausedRef.current || !gameStateRef.current.gameRunning) return;
     if (gameStateRef.current.hyperspaceCooldown > 0 || !shipRef.current.alive) return;
 
     if (isShipInNebulaRef.current) {
@@ -2040,6 +2352,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
   // Fire Weapons
   const fireWeapon = useCallback(() => {
+    if (isPausedRef.current || !gameStateRef.current.gameRunning) return;
     const ship = shipRef.current;
     if (!ship.alive) return;
 
@@ -2048,11 +2361,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
     if (bulletsRef.current.length >= maxBullets) return;
 
-    gameStateRef.current.shotsFired++;
-
     // Laser Beam Power-up
     if (p.laser > 0) {
       soundEngine.playSound('laser');
+      gameStateRef.current.shotsFired += 1;
       bulletsRef.current.push({
         x: ship.x + Math.cos(ship.angle) * 22,
         y: ship.y + Math.sin(ship.angle) * 22,
@@ -2065,7 +2377,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         size: 6.5,
         isLaser: true,
         color: '#ff0055',
-        isPlayer: true
+        isPlayer: true,
+        countsForAccuracy: true,
+        accuracyHitRecorded: false
       });
       return;
     }
@@ -2074,6 +2388,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
     if (p.tripleShot > 0 || p.golden > 0) {
       const spread = 0.28;
+      gameStateRef.current.shotsFired += 3;
       for (let s = -1; s <= 1; s++) {
         const fireAngle = ship.angle + s * spread;
         bulletsRef.current.push({
@@ -2087,11 +2402,14 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           maxLife: 60,
           size: 5,
           color: '#00ffcc',
-          isPlayer: true
+          isPlayer: true,
+          countsForAccuracy: true,
+          accuracyHitRecorded: false
         });
       }
     } else {
       // Powerful standard cannon
+      gameStateRef.current.shotsFired += 1;
       bulletsRef.current.push({
         x: ship.x + Math.cos(ship.angle) * 22,
         y: ship.y + Math.sin(ship.angle) * 22,
@@ -2103,7 +2421,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         maxLife: 60,
         size: 4.5,
         color: '#00ffff',
-        isPlayer: true
+        isPlayer: true,
+        countsForAccuracy: true,
+        accuracyHitRecorded: false
       });
     }
   }, []);
@@ -2238,27 +2558,35 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       mine: '💣 PROXIMITY MINE DETECTED',
       core_severance: '🚨 CRITICAL MAINFRAME ENCOUNTER DETECTED',
       shield_node: '🛡️ SHIELD NODE ONLINE',
-      triad_core: '🚨 TRIAD PROTOCOL PROTO-CORE INBOUND'
+      technoking: '🚨 THE GRID ARCHITECT HAS ARRIVED',
+      techno_drone: '🛸 TECHNO DRONE INBOUND'
     };
 
     addFloatingText(w / 2, 70 + (ufosRef.current.length * 22), typeNames[type], '#ff4444', 16);
   };
 
   // Lose Life / Take Hit
-  const handlePlayerHit = () => {
+  interface PlayerHitOptions {
+    lethal?: boolean;
+    bypassShield?: boolean;
+  }
+
+  const handlePlayerHit = (options: PlayerHitOptions = {}) => {
     const p = powerupTimersRef.current;
     const ship = shipRef.current;
 
+    if (!ship.alive) return;
+    if (gameMode === 'zen') return;
+    if (ship.invincibleTimer > 0) return;
+
     // Force shield or Golden mode absorbs hit
-    if (p.shield > 0 || p.golden > 0) {
+    if (!options.bypassShield && (p.shield > 0 || p.golden > 0)) {
       soundEngine.playSound('shield_hit');
       p.shield = 0;
       addShockwave(ship.x, ship.y, 60, '#66aaff');
       addFloatingText(ship.x, ship.y - 20, 'SHIELD ABSORBED HIT!', '#66aaff', 16);
       return;
     }
-
-    if (gameMode === 'zen') return;
 
     // Reset combo on player hit
     if (gameStateRef.current.comboCount >= 5) {
@@ -2269,7 +2597,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     gameStateRef.current.consecutiveHits = 0;
 
     // 2-Hit Hull Damage system: first hit damages hull by 50%
-    if (ship.hullPower > 40) {
+    if (!options.lethal && ship.hullPower > 40) {
       ship.hullPower -= 50;
       ship.hitRegenDelay = 150; // 2.5 sec delay before power starts regenerating
       ship.invincibleTimer = 85; // ~1.4 sec invincibility grace period
@@ -2294,7 +2622,19 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     ship.alive = false;
 
     if (gameStateRef.current.lives <= 0) {
+      if (
+        gameStateRef.current.wave === 15 && 
+        ufosRef.current.some(u => u.type === 'technoking' && u.health > 0) && 
+        !gameStateRef.current.gridArchitectContinueUsed
+      ) {
+        gameStateRef.current.gameRunning = false;
+        cancelScheduledEvents();
+        setShowContinueOffer(true);
+        return;
+      }
+
       gameStateRef.current.gameRunning = false;
+      cancelScheduledEvents();
       callbacksRef.current.onStatsRecord(
         gameStateRef.current.asteroidsDestroyed,
         gameStateRef.current.ufosDestroyed,
@@ -2302,11 +2642,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         gameStateRef.current.shotsHit,
         gameStateRef.current.empUsed,
         gameStateRef.current.score,
-        gameStateRef.current.wave
+        gameStateRef.current.wave,
+        gameStateRef.current.maxCombo,
+        gameStateRef.current.bossDamageDealt
       );
 
       const acc = gameStateRef.current.shotsFired > 0
-        ? Math.round((gameStateRef.current.shotsHit / gameStateRef.current.shotsFired) * 100)
+        ? Math.min(100, Math.max(0, Math.round((gameStateRef.current.shotsHit / gameStateRef.current.shotsFired) * 100)))
         : 0;
 
       callbacksRef.current.onGameOver(
@@ -2319,9 +2661,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         gameStateRef.current.bossDamageDealt
       );
     } else {
-      setTimeout(() => {
-        centerShip();
-      }, 1000);
+      cancelScheduledEvents('respawn');
+      scheduleGameEvent(1000, 'respawn', () => {
+        const currentShip = shipRef.current;
+        if (gameStateRef.current.gameRunning && gameStateRef.current.lives > 0 && !currentShip.alive) {
+          centerShip();
+        }
+      });
     }
   };
 
@@ -2345,6 +2691,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   // Listeners
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isPausedRef.current || !gameStateRef.current.gameRunning) return;
       gameStateRef.current.keys[e.key] = true;
 
       if (e.key === ' ' || e.key === 'Spacebar') {
@@ -2385,6 +2732,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
     const handleJoystick = (e: Event) => {
       const customEvt = e as CustomEvent;
+      if (isPausedRef.current || !gameStateRef.current.gameRunning) {
+        gameStateRef.current.touchJoystick = { active: false, angle: 0, distance: 0 };
+        return;
+      }
       if (customEvt.detail) {
         gameStateRef.current.touchJoystick = customEvt.detail;
       }
@@ -2418,6 +2769,17 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   useEffect(() => {
     if (isPaused) {
       soundEngine.pauseAll();
+      // Clear held movement states
+      const state = gameStateRef.current;
+      state.keys = {};
+      state.touchJoystick.active = false;
+      state.touchThrust = false;
+      state.touchReverse = false;
+      state.touchLeft = false;
+      state.touchRight = false;
+      state.pointerId = null;
+      soundEngine.stopThrustSound();
+      soundEngine.stopReverseSound();
     } else {
       soundEngine.resumeAll();
     }
@@ -2450,6 +2812,33 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     window.addEventListener('resize', handleResize);
 
     const updateAndRender = () => {
+      const now = performance.now();
+      let delta = now - lastSchedulerTimeRef.current;
+      lastSchedulerTimeRef.current = now;
+      delta = Math.min(delta, 100);
+
+      if (!isPaused && gameStateRef.current.gameRunning) {
+        const dueEvents: ScheduledGameEvent[] = [];
+        const pendingEvents: ScheduledGameEvent[] = [];
+        
+        for (const ev of scheduledEventsRef.current) {
+          ev.remainingMs -= delta;
+          if (ev.remainingMs <= 0) {
+            dueEvents.push(ev);
+          } else {
+            pendingEvents.push(ev);
+          }
+        }
+        scheduledEventsRef.current = pendingEvents;
+        
+        for (const ev of dueEvents) {
+          if (ev.scope === 'wave' && ev.waveToken !== waveTokenRef.current) {
+            continue;
+          }
+          ev.callback();
+        }
+      }
+
       if (!canvas || !ctx) return;
 
       const width = canvas.width;
@@ -2457,6 +2846,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       const state = gameStateRef.current;
       const ship = shipRef.current;
       const pTimers = powerupTimersRef.current;
+
+      // --- GAMEPLAY UPDATE (Only if not paused & running) ---
+      if (!isPaused && state.gameRunning) {
+        const timeFactor = pTimers.timewarp > 0 ? 0.25 : 1.0;
 
       // Update Powerup Timers & notify parent
       let pUpdated = false;
@@ -2510,9 +2903,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         }
       }
 
-      // --- GAMEPLAY UPDATE (Only if not paused & running) ---
-      if (!isPaused && state.gameRunning) {
-        const timeFactor = pTimers.timewarp > 0 ? 0.25 : 1.0;
+
 
         // EMP Auto-Recharge (60 sec cooldown when under max charges of 3)
         if (state.empCount < 3) {
@@ -2543,9 +2934,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         // 0.5. UPDATE IONIZING NEBULAS & CHECK SHIP COLLISION (EMP CLOUD HAZARD)
         isShipInNebulaRef.current = false;
         nebulasRef.current.forEach((neb) => {
-          neb.x += neb.vx;
-          neb.y += neb.vy;
-          neb.rotation += neb.rotSpeed;
+          neb.x += neb.vx * timeFactor;
+          neb.y += neb.vy * timeFactor;
+          neb.rotation += neb.rotSpeed * timeFactor;
 
           // Screen wrapping for nebulae
           if (neb.x < -neb.radius) neb.x = width + neb.radius;
@@ -2626,22 +3017,26 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           }
 
           const joystick = state.touchJoystick;
-          if (isTouchDevice && joystick && joystick.active) {
-            // Virtual Joystick Steering
+          if (isTouchDevice && joystick && joystick.active && joystick.distance > 0) {
+            // Virtual Joystick Steering - smooth & controlled rotation
             const targetAngle = joystick.angle;
             let diff = targetAngle - ship.angle;
             while (diff < -Math.PI) diff += Math.PI * 2;
             while (diff > Math.PI) diff -= Math.PI * 2;
 
-            const turnSpeed = 0.16;
-            if (Math.abs(diff) < turnSpeed) {
+            const maxTurnRate = 0.060; // Max turn speed (~3.4 deg/frame), gentle and precise
+            const angleMag = Math.abs(diff);
+            const turnFactor = Math.min(1.0, angleMag / (Math.PI / 4)); // Smooth ramp for fine adjustments
+            const turnStep = maxTurnRate * (0.35 + 0.65 * joystick.distance) * turnFactor;
+
+            if (angleMag <= turnStep) {
               ship.angle = targetAngle;
             } else {
-              ship.angle += Math.sign(diff) * turnSpeed;
+              ship.angle += Math.sign(diff) * turnStep;
             }
 
-            // Virtual Joystick Thrusting
-            if (joystick.distance > 0.22) {
+            // Virtual Joystick Thrusting - requires intentional push beyond deadzone
+            if (joystick.distance > 0.25) {
               state.touchThrust = true;
             } else {
               state.touchThrust = false;
@@ -2668,6 +3063,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ship.thrusting = true;
             ship.reverse = false;
             let accel = pTimers.golden > 0 ? 0.25 : 0.17;
+            if (isTouchDevice && joystick && joystick.active && joystick.distance > 0) {
+              // Smoothly scale thruster power from 50% to 100% based on stick deflection
+              accel *= (0.5 + 0.5 * joystick.distance);
+            }
             if (ship.frozenTimer > 0) accel *= 0.4; // Thrusters slowed by 60% when frozen!
             if (isInsideNebula) accel *= 0.5; // Mobility Lock: 50% thrust acceleration reduction inside Ionizing Nebula!
 
@@ -2700,8 +3099,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           } else {
             ship.thrusting = false;
             ship.reverse = false;
-            ship.thrust.x *= 0.985;
-            ship.thrust.y *= 0.985;
+            // Mobile Arcade Drag: on touch devices, apply stronger deceleration (0.915) when stick is released
+            const drag = isTouchDevice ? 0.915 : 0.985;
+            ship.thrust.x *= drag;
+            ship.thrust.y *= drag;
             soundEngine.stopThrustSound();
             soundEngine.stopReverseSound();
           }
@@ -2786,7 +3187,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   maxLife: 45,
                   size: 3,
                   color: '#a855f7',
-                  isPlayer: true
+                  isPlayer: true,
+                  countsForAccuracy: false
                 });
                 dr.shootCooldown = 25;
               }
@@ -2818,7 +3220,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 createSmallExplosion(ub.x, ub.y, '#ffaa00');
                 soundEngine.playSound('explode');
                 addFloatingText(ub.x, ub.y - 12, 'INTERCEPT!', '#00ffcc', 12);
-                
+                recordAccuracyHit(b);
                 if (ub.isMine) {
                   gameStateRef.current.bossMinesDestroyed++;
                   
@@ -2861,7 +3263,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(a.x - b.x, a.y - b.y);
 
             if (dist < a.radius) {
-              recordShotHit();
+              recordShotHit(b);
               if (!b.isLaser) {
                 bulletsRef.current.splice(j, 1);
               }
@@ -2936,7 +3338,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           if (a.type === 'moon' && a.parentPlanetoidId) {
             const parent = asteroidsRef.current.find(p => p.id === a.parentPlanetoidId && p.type === 'planetoid');
             if (parent) {
-              a.orbitAngle = (a.orbitAngle || 0) + (a.orbitSpeed || 0.02);
+              a.orbitAngle = (a.orbitAngle || 0) + (a.orbitSpeed || 0.02) * timeFactor;
               const orbR = a.orbitRadius || 105;
               a.x = parent.x + Math.cos(a.orbitAngle) * orbR;
               a.y = parent.y + Math.sin(a.orbitAngle) * orbR;
@@ -2954,16 +3356,16 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 a.vy = (a.vy / curSpd) * 0.35;
               }
             }
-            a.x += a.vx;
-            a.y += a.vy;
+            a.x += a.vx * timeFactor;
+            a.y += a.vy * timeFactor;
           }
 
-          a.angle += a.rotation;
+          a.angle += a.rotation * timeFactor;
           if (a.type !== 'normal') a.glow += 0.1;
 
           // Phantom phase state update
           if (a.type === 'phantom') {
-            a.phaseTimer = (a.phaseTimer || 0) + 1;
+            a.phaseTimer = (a.phaseTimer || 0) + timeFactor;
             a.isPhasedOut = (a.phaseTimer % 180) < 60; // Phased out 1sec out of 3sec
           }
 
@@ -3101,31 +3503,49 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(dx, dy);
 
             if (dist < bh.pullRadius && dist > 1) {
-              const force = Math.min(1.8, (1 - dist / bh.pullRadius) * 0.9);
+              const force = Math.min(1.8, (1 - dist / bh.pullRadius) * 0.9) * timeFactor;
               ship.thrust.x += (dx / dist) * force;
               ship.thrust.y += (dy / dist) * force;
 
               if (dist < bh.radius + 12) {
-                ship.hullPower -= 1.5;
-                callbacksRef.current.onHullPowerUpdate?.(ship.hullPower, ship.maxHullPower);
-                if (screenShakeEnabled) gameStateRef.current.shakeTimer = 4;
-                soundEngine.playSound('shield_hit');
+                const canTakeBlackHoleDamage =
+                  gameMode !== 'zen' &&
+                  ship.alive &&
+                  ship.invincibleTimer <= 0;
 
-                for (let p = 0; p < 2; p++) {
-                  particlesRef.current.push({
-                    x: ship.x,
-                    y: ship.y,
-                    vx: (Math.random() - 0.5) * 3,
-                    vy: (Math.random() - 0.5) * 3,
-                    life: 20,
-                    maxLife: 20,
-                    size: 3,
-                    color: '#a855f7'
-                  });
-                }
+                if (canTakeBlackHoleDamage) {
+                  ship.hullPower -= 1.5 * timeFactor;
 
-                if (ship.hullPower <= 0) {
-                  handlePlayerHit();
+                  callbacksRef.current.onHullPowerUpdate?.(
+                    Math.max(0, ship.hullPower),
+                    ship.maxHullPower
+                  );
+
+                  if (screenShakeEnabled) {
+                    gameStateRef.current.shakeTimer = 4;
+                  }
+
+                  soundEngine.playSound('shield_hit');
+
+                  for (let p = 0; p < 2; p++) {
+                    particlesRef.current.push({
+                      x: ship.x,
+                      y: ship.y,
+                      vx: (Math.random() - 0.5) * 3,
+                      vy: (Math.random() - 0.5) * 3,
+                      life: 20,
+                      maxLife: 20,
+                      size: 3,
+                      color: '#a855f7'
+                    });
+                  }
+
+                  if (ship.hullPower <= 0) {
+                    handlePlayerHit({
+                      lethal: true,
+                      bypassShield: true
+                    });
+                  }
                 }
               }
             }
@@ -3139,7 +3559,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(dx, dy);
 
             if (dist < bh.pullRadius && dist > 1) {
-              const force = (1 - dist / bh.pullRadius) * 0.55;
+              const force = (1 - dist / bh.pullRadius) * 0.55 * timeFactor;
               ast.vx += (dx / dist) * force;
               ast.vy += (dy / dist) * force;
 
@@ -3153,10 +3573,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             }
 
             if (ast.beingConsumed) {
-              ast.x += (bh.x - ast.x) * 0.18;
-              ast.y += (bh.y - ast.y) * 0.18;
-              ast.consumeScale = (ast.consumeScale || 1.0) - 0.08;
-              ast.consumeRotation = (ast.consumeRotation || 0) + 0.35;
+              ast.x += (bh.x - ast.x) * 0.18 * timeFactor;
+              ast.y += (bh.y - ast.y) * 0.18 * timeFactor;
+              ast.consumeScale = (ast.consumeScale || 1.0) - 0.08 * timeFactor;
+              ast.consumeRotation = (ast.consumeRotation || 0) + 0.35 * timeFactor;
 
               // Spiral particles into core
               if (Math.random() < 0.6) {
@@ -3192,7 +3612,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(dx, dy);
 
             if (dist < bh.pullRadius && dist > 1) {
-              const force = (1 - dist / bh.pullRadius) * 0.65;
+              const force = (1 - dist / bh.pullRadius) * 0.65 * timeFactor;
               u.vx += (dx / dist) * force;
               u.vy += (dy / dist) * force;
 
@@ -3206,10 +3626,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             }
 
             if (u.beingConsumed) {
-              u.x += (bh.x - u.x) * 0.18;
-              u.y += (bh.y - u.y) * 0.18;
-              u.consumeScale = (u.consumeScale || 1.0) - 0.08;
-              u.consumeRotation = (u.consumeRotation || 0) + 0.35;
+              u.x += (bh.x - u.x) * 0.18 * timeFactor;
+              u.y += (bh.y - u.y) * 0.18 * timeFactor;
+              u.consumeScale = (u.consumeScale || 1.0) - 0.08 * timeFactor;
+              u.consumeRotation = (u.consumeRotation || 0) + 0.35 * timeFactor;
 
               if (u.consumeScale <= 0) {
                 addFloatingText(bh.x, bh.y - 12, 'UFO CONSUMED!', '#8A2BE2', 15);
@@ -3230,13 +3650,14 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(dx, dy);
 
             if (dist < bh.pullRadius && dist > 1) {
-              const force = (1 - dist / bh.pullRadius) * 0.8;
+              const force = (1 - dist / bh.pullRadius) * 0.8 * timeFactor;
               b.vx += (dx / dist) * force;
               b.vy += (dy / dist) * force;
 
               // Expanded hitbox: Hitting photon ring or inner accretion disk damages black hole!
               const hitRadius = Math.max(bh.radius * 2.0, 80);
               if (dist < hitRadius) {
+                recordAccuracyHit(b);
                 if (!b.isLaser) {
                   bulletsRef.current.splice(bIdx, 1);
                 }
@@ -3314,7 +3735,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               const dmg = b.isLaser ? 3 : 1;
               neb.health -= dmg;
               neb.damageFlash = 10; // Flash white on damage!
-              recordShotHit();
+              recordShotHit(b);
 
               createSmallExplosion(b.x, b.y, '#ff00ff');
               soundEngine.playSound('shield_hit');
@@ -3508,7 +3929,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 const dmg = b.isLaser ? 22 : 10;
                 c.health -= dmg;
                 c.damageFlash = 8;
-                recordShotHit();
+                recordShotHit(b);
                 createSmallExplosion(b.x, b.y, c.color);
                 soundEngine.playSound('shield_hit');
 
@@ -3669,71 +4090,273 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               ufo.hasDroppedOverheatPowerup = false;
             }
 
-            if (ufo.type === 'triad_core') {
-               const triadCores = ufosRef.current.filter(u => u.type === 'triad_core');
-               const isLinked = triadCores.length > 1;
-               const isBerserk = triadCores.length === 1;
-
-               // Movement
-               ufo.behaviorTimer = (ufo.behaviorTimer || 0) + timeFactor;
-               const bt = ufo.behaviorTimer;
-               
-               const w = canvasRef.current?.width || window.innerWidth;
-               const h = canvasRef.current?.height || window.innerHeight;
-               const sweepX = Math.sin(bt * 0.005) * 300;
-               const sweepY = Math.cos(bt * 0.003) * 100;
-               const cx = w / 2 + sweepX;
-               const cy = Math.max(h * 0.35, 250) + sweepY;
-
-               if (!isBerserk) {
-                  // Spin in formation
-                  ufo.angle += 0.01 * timeFactor;
-                  const triadRadius = triadCores.length === 3 ? 180 : 130;
-                  const targetX = cx + Math.cos(ufo.angle) * triadRadius;
-                  const targetY = cy + Math.sin(ufo.angle) * triadRadius;
-                  ufo.x += (targetX - ufo.x) * 0.05 * timeFactor;
-                  ufo.y += (targetY - ufo.y) * 0.05 * timeFactor;
-               } else {
-                  // Berserk: aggressively follow player, but stay above
-                  if (ship.alive) {
-                     const targetX = ship.x;
-                     const targetY = Math.min(ship.y - 250, h/2);
-                     ufo.x += (targetX - ufo.x) * 0.03 * timeFactor;
-                     ufo.y += (targetY - ufo.y) * 0.03 * timeFactor;
-                  }
-               }
-               
-               // Attack logic
-               ufo.shootTimer += timeFactor;
-               const shootThreshold = isBerserk ? 30 : 70;
-               if (ufo.shootTimer > shootThreshold) {
-                  ufo.shootTimer = 0;
-                  if (ship.alive) {
-                     const angleToShip = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
-                     if (isBerserk) {
-                        // Spread of 3
-                        for(let a = -0.3; a <= 0.3; a += 0.3) {
-                           ufoBulletsRef.current.push({
-                              x: ufo.x, y: ufo.y,
-                              vx: Math.cos(angleToShip+a) * 7, vy: Math.sin(angleToShip+a) * 7,
-                              angle: angleToShip+a, radius: 6, isLaser: false, color: '#ff0055'
-                           });
-                        }
-                        soundEngine.playSound('laser');
-                     } else {
-                        // Single aimed shot
-                        ufoBulletsRef.current.push({
-                           x: ufo.x, y: ufo.y,
-                           vx: Math.cos(angleToShip) * 5.5, vy: Math.sin(angleToShip) * 5.5,
-                           angle: angleToShip, radius: 6, isLaser: false, color: '#00ffff'
-                        });
-                        if (triadCores[0] && ufo.id === triadCores[0].id) soundEngine.playSound('laser'); // prevent stacked sounds
-                     }
-                  }
-               }
+            if (ufo.type === 'techno_drone') {
+              const boss = ufosRef.current.find(u => u.type === 'technoking');
+              if (boss) {
+                ufo.orbitAngle = (ufo.orbitAngle || 0) + 0.02 * timeFactor;
+                const targetX = boss.x + Math.cos(ufo.orbitAngle) * 160;
+                const targetY = boss.y + Math.sin(ufo.orbitAngle) * 100;
+                ufo.x += (targetX - ufo.x) * 0.08 * timeFactor;
+                ufo.y += (targetY - ufo.y) * 0.08 * timeFactor;
+              }
+              ufo.shootTimer += timeFactor;
+              if (ufo.shootTimer > 120 && ship.alive) {
+                ufo.shootTimer = 0;
+                const angle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                ufoBulletsRef.current.push({
+                  x: ufo.x, y: ufo.y,
+                  vx: Math.cos(angle) * 5, vy: Math.sin(angle) * 5,
+                  angle, size: 5, speed: 5, life: 100, maxLife: 100, isPlayer: false, isLaser: false, color: '#00ffff'
+                });
+                soundEngine.playSound('laser');
+              }
             }
-            
-            if (ufo.type === 'core_severance') {
+
+            if (ufo.type === 'technoking') {
+              ufo.behaviorTimer = (ufo.behaviorTimer || 0) + timeFactor;
+              const bt = ufo.behaviorTimer;
+              const w = canvasRef.current?.width || window.innerWidth;
+              const h = canvasRef.current?.height || window.innerHeight;
+
+              const hpRatio = ufo.health / ufo.maxHealth;
+
+              // Phase Transitions
+              if (hpRatio <= 0.6 && hpRatio > 0.3 && ufo.bossPhase === 1) {
+                ufo.bossPhase = 2;
+                addShockwave(ufo.x, ufo.y, 400, '#00ffff');
+                soundEngine.playSound('heavy_explode');
+                triggerBigBanner(
+                  'GRID REWRITE INITIATED',
+                  'REFLECTIVE ARC ONLINE • ORBITAL STRIKE ACTIVE',
+                  '#00ffff',
+                  'rgba(0, 255, 255, 0.9)',
+                  180
+                );
+                const p2Types: Collectible['type'][] = ['laser', 'triple', 'emp', 'timewarp'];
+                spawnArchitectSupportCache(['shield', p2Types[Math.floor(Math.random() * p2Types.length)]], 'PHASE 2 SUPPORT CACHE');
+              } else if (hpRatio <= 0.3 && ufo.bossPhase === 2) {
+                ufo.bossPhase = 3;
+                addShockwave(ufo.x, ufo.y, 500, '#ff00ff');
+                soundEngine.playSound('heavy_explode');
+                triggerBigBanner(
+                  'CORE COLLAPSE',
+                  'DEFENCE MATRIX FAILED • FINAL OVERDRIVE',
+                  '#ff00ff',
+                  'rgba(255, 0, 255, 0.9)',
+                  180
+                );
+                const p3Types: Collectible['type'][] = ['emp', 'timewarp', 'repulsor'];
+                spawnArchitectSupportCache(['golden', p3Types[Math.floor(Math.random() * p3Types.length)]], 'FINAL PHASE SUPPORT CACHE');
+              }
+
+              // Smooth Floating Movement
+              const sweepX = Math.sin(bt * 0.006) * (w * 0.28);
+              const sweepY = Math.cos(bt * 0.004) * 35;
+              const targetX = w / 2 + sweepX;
+              const targetY = Math.max(h * 0.28, 220) + sweepY;
+
+              ufo.x += (targetX - ufo.x) * 0.04 * timeFactor;
+              ufo.y += (targetY - ufo.y) * 0.04 * timeFactor;
+
+              // Face Rotation / Tilt
+              if (ufo.bossPhase === 2) {
+                ufo.faceRotation = Math.sin(bt * 0.012) * 0.45;
+              } else if (ufo.bossPhase === 3) {
+                ufo.faceRotation = Math.sin(bt * 0.02) * 0.2;
+              } else {
+                ufo.faceRotation = Math.sin(bt * 0.005) * 0.1;
+              }
+
+              // Sequence states
+              ufo.laserSweepTelegraph = ufo.laserSweepTelegraph || 0;
+              ufo.laserSweepFiring = ufo.laserSweepFiring || 0;
+              ufo.laserSweepRecovery = ufo.laserSweepRecovery || 0;
+
+              const beamTelegraphActive = ufo.laserSweepTelegraph > 0;
+              const beamFiringActive = ufo.laserSweepFiring > 0;
+              const beamRecoveryActive = ufo.laserSweepRecovery > 0;
+              const beamSequenceActive = beamTelegraphActive || beamFiringActive || beamRecoveryActive;
+
+              const orbitalSequenceActive = (ufo.orbitalWarning || 0) > 0 || (ufo.orbitalFiring || 0) > 0;
+
+              // Attack 1: Rapid Fire (Fan of projectiles)
+              ufo.rapidFireTimer = (ufo.rapidFireTimer || 0) + timeFactor;
+              const stormInterval = ufo.bossPhase === 3 ? 90 : (ufo.bossPhase === 2 ? 120 : 150);
+              if (!beamSequenceActive && !orbitalSequenceActive) {
+                if (ufo.rapidFireTimer > stormInterval && ship.alive) {
+                  ufo.rapidFireTimer = 0;
+                  const baseAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                  const count = ufo.bossPhase === 3 ? 7 : 5;
+                  const spread = 0.5;
+                  for (let i = 0; i < count; i++) {
+                    const ang = baseAngle - spread / 2 + (spread / (count - 1)) * i;
+                    ufoBulletsRef.current.push({
+                      x: ufo.x,
+                      y: ufo.y + 20,
+                      vx: Math.cos(ang) * 5.5,
+                      vy: Math.sin(ang) * 5.5,
+                      angle: ang,
+                      speed: 5.5,
+                      size: 6,
+                      life: 150,
+                      maxLife: 150,
+                      isPlayer: false,
+                      isLaser: false,
+                      color: i % 2 === 0 ? '#00ffff' : '#ff00ff'
+                    });
+                  }
+                  soundEngine.playSound('laser');
+                }
+              }
+
+              // Attack 2: Main Beam (Laser Sweep)
+              if (ufo.laserSweepTelegraph > 0) {
+                ufo.laserSweepTelegraph -= timeFactor;
+                const lockThreshold = ufo.bossPhase === 3 ? 45 : (ufo.bossPhase === 2 ? 50 : 60);
+                
+                // Track only if above threshold
+                if (ufo.laserSweepTelegraph > lockThreshold && ship.alive) {
+                  const targetAng = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                  const curAng = ufo.laserSweepAngle || targetAng;
+                  let diff = targetAng - curAng;
+                  while (diff < -Math.PI) diff += Math.PI * 2;
+                  while (diff > Math.PI) diff -= Math.PI * 2;
+                  ufo.laserSweepAngle = curAng + diff * 0.05 * timeFactor;
+                }
+
+                if (ufo.laserSweepTelegraph <= 0) {
+                  ufo.laserSweepFiring = ufo.bossPhase === 3 ? 40 : (ufo.bossPhase === 2 ? 35 : 30);
+                  soundEngine.playSound('heavy_explode');
+                }
+              } else if (ufo.laserSweepFiring > 0) {
+                ufo.laserSweepFiring -= timeFactor;
+                if (ship.alive) {
+                  const laserAngle = ufo.laserSweepAngle || (Math.PI / 2);
+                  const dx = ship.x - ufo.x;
+                  const dy = ship.y - ufo.y;
+                  const proj = dx * Math.cos(laserAngle) + dy * Math.sin(laserAngle);
+                  const distToBeam = Math.abs(dx * Math.sin(laserAngle) - dy * Math.cos(laserAngle));
+                  if (distToBeam < 35 && proj > 0 && proj < 1600) {
+                    handlePlayerHit();
+                  }
+                }
+                if (ufo.laserSweepFiring <= 0) {
+                  ufo.laserSweepRecovery = ufo.bossPhase === 3 ? 45 : (ufo.bossPhase === 2 ? 60 : 75);
+                  ufo.architectRecoveryCount = (ufo.architectRecoveryCount || 0) + 1;
+                  const count = ufo.architectRecoveryCount;
+                  if (ship.alive) {
+                    const needsEmergencyDefence = ship.hullPower <= 50 && pTimers.shield <= 0 && pTimers.golden <= 0;
+                    const colCount = collectiblesRef.current.length;
+                    if (needsEmergencyDefence && count % 2 === 0) {
+                      if (colCount < 8) {
+                        const rand = Math.random();
+                        const eType = rand < 0.65 ? 'shield' : (rand < 0.85 ? 'golden' : 'timewarp');
+                        spawnArchitectSupportCache([eType], 'EMERGENCY SUPPORT');
+                      }
+                    } else if (count % 3 === 0) {
+                      if (colCount < 6) {
+                        const normTypes: Collectible['type'][] = ['shield', 'emp', 'timewarp', 'laser', 'triple', 'repulsor', 'drone'];
+                        spawnArchitectSupportCache([normTypes[Math.floor(Math.random() * normTypes.length)]], 'RECOVERY CACHE');
+                      }
+                    }
+                  }
+                }
+              } else if (ufo.laserSweepRecovery > 0) {
+                ufo.laserSweepRecovery -= timeFactor;
+              } else {
+                ufo.shootTimer += timeFactor;
+                if (ufo.shootTimer > (ufo.bossPhase === 3 ? 150 : 220) && ship.alive) {
+                  if (!orbitalSequenceActive && !(ufo.gravityPulseActive && ufo.gravityPulseActive > 0)) {
+                    ufo.shootTimer = 0;
+                    ufo.laserSweepTelegraph = ufo.bossPhase === 3 ? 90 : (ufo.bossPhase === 2 ? 105 : 120);
+                    ufo.laserSweepAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                  }
+                }
+              }
+
+              // Phase 2+ Attacks: Orbital Strike & Gravity Pulse
+              if (ufo.bossPhase >= 2) {
+                ufo.orbitalWarning = ufo.orbitalWarning || 0;
+                ufo.orbitalFiring = ufo.orbitalFiring || 0;
+                if (ufo.orbitalWarning > 0) {
+                  ufo.orbitalWarning -= timeFactor;
+                  if (ufo.orbitalWarning <= 0) {
+                    ufo.orbitalFiring = 35; // explosion duration
+                    soundEngine.playSound('heavy_explode');
+                  }
+                } else if (ufo.orbitalFiring > 0) {
+                  ufo.orbitalFiring -= timeFactor;
+                  if (ship.alive) {
+                    const distToTarget = Math.hypot(ship.x - (ufo.orbitalTargetX || ship.x), ship.y - (ufo.orbitalTargetY || ship.y));
+                    if (distToTarget < 120) { // Large blast radius
+                      handlePlayerHit();
+                    }
+                  }
+                } else {
+                  ufo.chargeTimer = (ufo.chargeTimer || 0) + timeFactor;
+                  if (ufo.chargeTimer > 350 && ship.alive) {
+                    if (!beamSequenceActive) {
+                      ufo.chargeTimer = 0;
+                      ufo.orbitalWarning = 90; // Long telegraph
+                      ufo.orbitalTargetX = ship.x;
+                      ufo.orbitalTargetY = ship.y;
+                    }
+                  }
+                }
+
+                ufo.gravityPulseTimer = (ufo.gravityPulseTimer || 0) + timeFactor;
+                if (ufo.gravityPulseTimer > 400) {
+                  if (!beamSequenceActive && !orbitalSequenceActive) {
+                    ufo.gravityPulseTimer = 0;
+                    ufo.gravityPulseActive = 50;
+                    addShockwave(ufo.x, ufo.y, 400, '#00ffff');
+                  }
+                }
+
+                if (ufo.gravityPulseActive && ufo.gravityPulseActive > 0) {
+                  ufo.gravityPulseActive -= timeFactor;
+                  if (ship.alive) {
+                    const dx = ufo.x - ship.x;
+                    const dy = ufo.y - ship.y;
+                    const d = Math.hypot(dx, dy);
+                    if (d > 80 && d < 700) {
+                      ship.thrust.x += (dx / d) * 0.15 * timeFactor;
+                      ship.thrust.y += (dy / d) * 0.15 * timeFactor;
+                    }
+                  }
+                }
+              }
+
+              // Phase 3: Desperation Spiral
+              if (ufo.bossPhase === 3) {
+                ufo.spiralTimer = (ufo.spiralTimer || 0) + timeFactor;
+                if (ufo.spiralTimer > 250 && ship.alive) {
+                  if (!beamSequenceActive && !orbitalSequenceActive) {
+                    ufo.spiralTimer = 0;
+                    const count = 16;
+                    const offset = (bt * 0.05) % (Math.PI * 2);
+                    for (let i = 0; i < count; i++) {
+                      const ang = offset + (i * Math.PI * 2) / count;
+                      ufoBulletsRef.current.push({
+                        x: ufo.x,
+                        y: ufo.y,
+                        vx: Math.cos(ang) * 4.2,
+                        vy: Math.sin(ang) * 4.2,
+                        angle: ang,
+                        speed: 4.2,
+                        size: 6,
+                        life: 150,
+                        maxLife: 150,
+                        isPlayer: false,
+                        isLaser: false,
+                        color: '#ff00ff'
+                      });
+                    }
+                    soundEngine.playSound('laser');
+                  }
+                }
+              }
+            } else if (ufo.type === 'core_severance') {
               // Core Severance AI
               // Find nodes
               const activeNodes = ufosRef.current.filter(u => u.type === 'shield_node' && u.health > 0);
@@ -3761,6 +4384,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                  if (ufo.bossState === 'cooldown') {
                     ufo.bossState = 'laserCharge';
                     ufo.bossStateTimer = nodeCount === 0 ? 120 : 180;
+                    if (ship.alive) {
+                       ufo.laserTargetAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                    }
                  } else if (ufo.bossState === 'laserCharge') {
                     ufo.bossState = 'laserFire';
                     ufo.bossStateTimer = nodeCount === 0 ? 150 : 100;
@@ -3775,23 +4401,48 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                  }
               }
 
+              // Track player during laser charge, lock before firing
+              if (ufo.bossState === 'laserCharge') {
+                 const laserLockFrames = nodeCount === 0 ? 35 : 45;
+                 if (ufo.bossStateTimer > laserLockFrames && ship.alive) {
+                    const targetAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
+                    const currentAngle = ufo.laserTargetAngle ?? targetAngle;
+                    const angleDifference = Math.atan2(
+                       Math.sin(targetAngle - currentAngle),
+                       Math.cos(targetAngle - currentAngle)
+                    );
+                    const trackingStrength = nodeCount === 0 ? 0.065 : 0.045;
+                    ufo.laserTargetAngle = currentAngle + angleDifference * trackingStrength * timeFactor;
+                 }
+              }
+
               // Attacks based on state
               if (ufo.bossState === 'laserFire' && ship.alive) {
-                 if (Math.random() < (nodeCount === 0 ? 0.08 : 0.03)) {
+                 const laserAngle = ufo.laserTargetAngle || Math.PI / 2;
+                 const dx = ship.x - ufo.x;
+                 const dy = ship.y - ufo.y;
+                 const alongBeam = dx * Math.cos(laserAngle) + dy * Math.sin(laserAngle);
+                 const distanceToBeam = Math.abs(dx * Math.sin(laserAngle) - dy * Math.cos(laserAngle));
+                 
+                 if (alongBeam >= 0 && alongBeam <= 2200 && distanceToBeam <= 12.5 + ship.radius) {
+                    handlePlayerHit();
+                 }
+
+                 if (Math.random() < (nodeCount === 0 ? 0.08 : 0.03) * timeFactor) {
                     // Fire seeking heavy orb
                     const angle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
                     ufoBulletsRef.current.push({
-                        id: 'orb-' + Math.random(),
                         x: ufo.x,
                         y: ufo.y,
                         vx: Math.cos(angle) * (nodeCount === 0 ? 4 : 2.5),
                         vy: Math.sin(angle) * (nodeCount === 0 ? 4 : 2.5),
+                        angle: angle,
+                        speed: nodeCount === 0 ? 4 : 2.5,
                         life: 300,
                         maxLife: 300,
                         size: 8,
                         color: '#A371F7',
-                        isPlayer: false,
-                        isSeeking: true
+                        isPlayer: false
                     });
                     soundEngine.playSound('laser');
                  }
@@ -3811,7 +4462,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 ufo.vx = -Math.abs(ufo.vx);
               }
 
-            } else {
+            } else if (ufo.type === 'dreadnought') {
               // Update directional rotating shield angle
               const shieldSpeed = ufo.bossPhase === 2 ? 0.022 : 0.014;
             ufo.shieldAngle = ((ufo.shieldAngle || 0) + shieldSpeed * timeFactor) % (Math.PI * 2);
@@ -3862,7 +4513,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             // State Machine Logic
             if (ufo.bossState === 'burst') {
               // State A: Burst Fire (4 seconds / 240 frames)
-              ufo.shootTimer++;
+              ufo.shootTimer += timeFactor;
               // Fire in controlled bursts: fires for 1 sec (60 frames), pauses for 1 sec (60 frames)
               const isFiringWindow = (ufo.bossStateTimer % 120) < 60;
               
@@ -3878,8 +4529,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   ufoBulletsRef.current.push({
                     x: ufo.x + Math.cos(fireA) * ufo.radius * 0.8,
                     y: ufo.y + Math.sin(fireA) * ufo.radius * 0.8,
-                    vx: Math.cos(fireA) * 5.5 * timeFactor,
-                    vy: Math.sin(fireA) * 5.5 * timeFactor,
+                    vx: Math.cos(fireA) * 5.5,
+                    vy: Math.sin(fireA) * 5.5,
                     angle: fireA,
                     speed: 5.5,
                     life: 140,
@@ -3902,7 +4553,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             } else if (ufo.bossState === 'laserCharge') {
               // State B: Laser Charge Up (5.0 seconds / 300 frames)
               // Gather energy particles at core during telegraph
-              if (Math.random() < 0.7) {
+              if (
+                particlesRef.current.length < 135 &&
+                Math.random() < 0.45
+              ) {
                 particlesRef.current.push({
                   x: ufo.x + (Math.random() - 0.5) * ufo.radius,
                   y: ufo.y + (Math.random() - 0.5) * ufo.radius,
@@ -3957,11 +4611,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   // Thin solid beam, player is destroyed if caught
                   if (Math.abs(diff) <= 0.06) {
                     // Boss Immunity to shield ram, player penalty: instant death bypassing shields
-                    ship.alive = false;
-                    pTimers.shield = 0;
-                    pTimers.golden = 0;
-                    ship.hullPower = 0;
-                    handlePlayerHit();
+                    handlePlayerHit({ lethal: true, bypassShield: true });
                   }
                 }
               }
@@ -4009,7 +4659,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               }
             } else if (ufo.bossState === 'mines') {
               // State E: Proximity Mines (4 seconds / 240 frames)
-              ufo.shootTimer++;
+              ufo.shootTimer += timeFactor;
               // Fire a mine every 45 frames
               if (ufo.shootTimer >= 45 && ship.alive) {
                 ufo.shootTimer = 0;
@@ -4019,8 +4669,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 ufoBulletsRef.current.push({
                     x: ufo.x + Math.cos(fireA) * ufo.radius * 0.8,
                     y: ufo.y + Math.sin(fireA) * ufo.radius * 0.8,
-                    vx: Math.cos(fireA) * 3.5 * timeFactor,
-                    vy: Math.sin(fireA) * 3.5 * timeFactor,
+                    vx: Math.cos(fireA) * 3.5,
+                    vy: Math.sin(fireA) * 3.5,
                     angle: fireA,
                     speed: 3.5,
                     life: 600, // live a long time
@@ -4061,17 +4711,17 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                    if (Math.random() < 0.3) {
                       const angle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
                       ufoBulletsRef.current.push({
-                          id: 'node-beam-' + Math.random(),
                           x: ufo.x,
                           y: ufo.y,
                           vx: Math.cos(angle) * 3,
                           vy: Math.sin(angle) * 3,
+                          angle: angle,
+                          speed: 3,
                           life: 180,
                           maxLife: 180,
                           size: 5,
                           color: '#00ffff',
-                          isPlayer: false,
-                          isSeeking: false
+                          isPlayer: false
                       });
                       soundEngine.playSound('laser');
                    }
@@ -4097,7 +4747,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               while (diff > Math.PI) diff -= Math.PI * 2;
               ufo.angle += diff * 0.12 * timeFactor;
 
-              ufo.burstTimer = (ufo.burstTimer || 60) - 1;
+              ufo.burstTimer = (ufo.burstTimer || 60) - timeFactor;
               if (ufo.burstTimer <= 0) {
                 if (!ufo.isBursting) {
                   ufo.isBursting = true;
@@ -4141,7 +4791,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ufo.x += ufo.vx * timeFactor;
             ufo.y += ufo.vy * timeFactor;
           } else if (ufo.type === 'swarmer') {
-            ufo.behaviorTimer = (ufo.behaviorTimer || 0) + 1;
+            ufo.behaviorTimer = (ufo.behaviorTimer || 0) + timeFactor;
             ufo.angle += 0.12 * timeFactor;
 
             if (ship.alive) {
@@ -4201,7 +4851,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ufo.y += Math.sin((ufo.x + ui * 50) * 0.01) * 0.8 * timeFactor;
           }
 
-          ufo.shootTimer++;
+          ufo.shootTimer += timeFactor;
 
           // Ship vs UFO direct crash
           if (ship.alive) {
@@ -4210,11 +4860,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               if (ufo.isBoss) {
                 // Boss Immunity: zero damage to boss.
                 // Player Penalty: Instantly destroyed, bypassing any shields
-                ship.alive = false;
-                pTimers.shield = 0;
-                pTimers.golden = 0;
-                ship.hullPower = 0;
-                handlePlayerHit();
+                handlePlayerHit({ lethal: true, bypassShield: true });
               } else if (ufo.type === 'shield_node') {
                 if (isShielded) {
                   soundEngine.playSound('shield_hit');
@@ -4223,15 +4869,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   
                   // Gently push ship away
                   const pushAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
-                  ship.vx += Math.cos(pushAngle) * 5;
-                  ship.vy += Math.sin(pushAngle) * 5;
+                  ship.thrust.x += Math.cos(pushAngle) * 5;
+                  ship.thrust.y += Math.sin(pushAngle) * 5;
                 } else {
                   handlePlayerHit();
                   
                   // Gently push ship away after taking damage
                   const pushAngle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
-                  ship.vx += Math.cos(pushAngle) * 5;
-                  ship.vy += Math.sin(pushAngle) * 5;
+                  ship.thrust.x += Math.cos(pushAngle) * 5;
+                  ship.thrust.y += Math.sin(pushAngle) * 5;
                 }
               } else if (isShielded) {
                 soundEngine.playSound('shield_hit');
@@ -4273,8 +4919,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 ufoBulletsRef.current.push({
                   x: ufo.x,
                   y: ufo.y + 2,
-                  vx: Math.cos(targetAngle) * 5.5 * timeFactor,
-                  vy: Math.sin(targetAngle) * 5.5 * timeFactor,
+                  vx: Math.cos(targetAngle) * 5.5,
+                  vy: Math.sin(targetAngle) * 5.5,
                   angle: targetAngle,
                   speed: 5.5,
                   life: 150,
@@ -4288,7 +4934,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               }
             } else if (ufo.type === 'dreadnought' && !ufo.isBoss) {
               // Dreadnought Death Beam Charge
-              ufo.chargeTimer = (ufo.chargeTimer || 0) + 1;
+              ufo.chargeTimer = (ufo.chargeTimer || 0) + timeFactor;
               if (ufo.chargeTimer > 180) {
                 ufo.isChargingBeam = true;
               }
@@ -4315,8 +4961,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   ufoBulletsRef.current.push({
                     x: ufo.x,
                     y: ufo.y + 12,
-                    vx: Math.cos(baseAngle) * 5.5 * timeFactor,
-                    vy: Math.sin(baseAngle) * 5.5 * timeFactor,
+                    vx: Math.cos(baseAngle) * 5.5,
+                    vy: Math.sin(baseAngle) * 5.5,
                     angle: baseAngle,
                     speed: 5.5,
                     life: 160,
@@ -4334,8 +4980,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   ufoBulletsRef.current.push({
                     x: ufo.x,
                     y: ufo.y + 10,
-                    vx: Math.cos(a + ufo.angle) * 4.5 * timeFactor,
-                    vy: Math.sin(a + ufo.angle) * 4.5 * timeFactor,
+                    vx: Math.cos(a + ufo.angle) * 4.5,
+                    vy: Math.sin(a + ufo.angle) * 4.5,
                     angle: a,
                     speed: 4.5,
                     life: 140,
@@ -4354,8 +5000,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 ufoBulletsRef.current.push({
                   x: ufo.x + Math.cos(fireAngle) * ufo.radius,
                   y: ufo.y + Math.sin(fireAngle) * ufo.radius,
-                  vx: Math.cos(fireAngle) * 6.5 * timeFactor,
-                  vy: Math.sin(fireAngle) * 6.5 * timeFactor,
+                  vx: Math.cos(fireAngle) * 6.5,
+                  vy: Math.sin(fireAngle) * 6.5,
                   angle: fireAngle,
                   speed: 6.5,
                   life: 130,
@@ -4373,8 +5019,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 ufoBulletsRef.current.push({
                   x: ufo.x,
                   y: ufo.y,
-                  vx: Math.cos(targetAngle) * 6.0 * timeFactor,
-                  vy: Math.sin(targetAngle) * 6.0 * timeFactor,
+                  vx: Math.cos(targetAngle) * 6.0,
+                  vy: Math.sin(targetAngle) * 6.0,
                   angle: targetAngle,
                   speed: 6.0,
                   life: 110,
@@ -4408,51 +5054,54 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             const dist = Math.hypot(ufo.x - b.x, ufo.y - b.y);
 
             if (ufo.isBoss) {
-              if (ufo.type === 'triad_core') {
+              if (ufo.type === 'technoking') {
                 const hitRadius = ufo.radius;
                 if (dist < hitRadius + b.size) {
-                   const triadCores = ufosRef.current.filter(u => u.type === 'triad_core');
-                   const isLinked = triadCores.length > 1;
-                   const isBerserk = triadCores.length === 1;
-                   
-                   // Damage calculation
-                   let dmg = (b.isLaser ? 25 : 10);
-                   if (isLinked) {
-                      dmg = Math.max(1, Math.floor(dmg * 0.15)); // heavily reduced damage when linked
-                   } else if (isBerserk) {
-                      dmg = Math.floor(dmg * 1.5); // Takes more damage in berserk mode but is deadlier
-                   }
-                   
-                   ufo.health -= dmg;
-                   state.bossDamageDealt += dmg;
-                   recordShotHit();
-                   createBigExplosion(b.x, b.y, isLinked ? '#00ffff' : '#ff0055');
-                   soundEngine.playSound(isLinked ? 'shield_hit' : 'heavy_explode');
-                   if (!b.isLaser) bulletsRef.current.splice(i, 1);
-                   
-                   if (ufo.health <= 0) {
-                      destroyUfo(ufo, 5000); // Base points
-                      
-                      if (triadCores.length === 3) {
-                         triggerBigBanner('⚠️ LINK BROKEN', 'DEFENSES WEAKENING!', '#00ffff', 'rgba(0, 255, 255, 0.8)', 90);
-                      } else if (triadCores.length === 2) {
-                         triggerBigBanner('⚠️ FINAL CORE ISOLATED ⚠️', 'BERSERK MODE ACTIVATED!', '#ff0055', 'rgba(255, 0, 85, 0.9)', 120);
-                         soundEngine.playSound('heavy_explode');
-                      } else {
-                         triggerBigBanner('TRIAD PROTOCOL DESTROYED', 'THREAT NEUTRALIZED', '#38bdf8', 'rgba(56, 189, 248, 0.9)', 180);
-                      }
-                      
-                      // Also spawn a bunch of powerups from the broken core
-                      if (Math.random() < 0.5) spawnCollectible(ufo.x, ufo.y, 'laser');
-                      spawnCollectible(ufo.x + 20, ufo.y, 'golden');
-                      break;
-                   } else {
-                      if (isLinked) {
-                         addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `LINKED! -${dmg}`, '#00ffff', 14);
-                      } else {
-                         addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `-${Math.floor(dmg)} HP`, '#ff0055', 18);
-                      }
-                   }
+                  // Check Reflective Armor in Phase 2
+                  const hitAngle = Math.atan2(b.y - ufo.y, b.x - ufo.x);
+                  const faceRot = ufo.faceRotation || 0;
+                  const relAngle = Math.atan2(Math.sin(hitAngle - faceRot), Math.cos(hitAngle - faceRot));
+
+                  // In Phase 2, left side (relAngle between 0 and PI, or sin > 0.1) reflects bullets
+                  const isReflectiveHit = (ufo.bossPhase === 2 && Math.sin(relAngle) > 0.1);
+
+                  if (isReflectiveHit) {
+                    recordAccuracyHit(b);
+                    emitArchitectHitFeedback(b.x, b.y, '#00ffff', 'REFLECTED', false);
+
+                    // Bounce bullet back towards player direction
+                    b.vx = -b.vx * 1.1;
+                    b.vy = -b.vy * 1.1;
+                    b.isPlayer = false;
+                    b.color = '#00ffff';
+                    continue;
+                  }
+
+                  // Weak spot check: glowing eyes / nose bridge area
+                  const distToEyes = Math.hypot(b.x - ufo.x, b.y - (ufo.y - 20));
+                  const isEyeHit = distToEyes < 42;
+
+                  let dmg = (b.isLaser ? 32 : 12);
+                  if (isEyeHit) {
+                    dmg = Math.floor(dmg * 1.6); // Critical eye hit!
+                  }
+
+                  ufo.health -= dmg;
+                  state.bossDamageDealt += dmg;
+                  recordShotHit(b);
+                  
+                  if (isEyeHit) {
+                    emitArchitectHitFeedback(b.x, b.y, '#ffff00', `CORE CRITICAL -${dmg}`, true);
+                  } else {
+                    emitArchitectHitFeedback(b.x, b.y, '#ff00ff', `-${dmg}`, false);
+                  }
+
+                  if (!b.isLaser) bulletsRef.current.splice(i, 1);
+
+                  if (ufo.health <= 0) {
+                    destroyUfo(ufo, 20000);
+                    break;
+                  }
                 }
               } else if (ufo.type === 'core_severance') {
                 const hitRadius = ufo.radius;
@@ -4460,25 +5109,21 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   const activeNodes = ufosRef.current.filter(u => u.type === 'shield_node' && u.health > 0).length;
                   if (activeNodes > 0) {
                      // Invulnerable due to nodes
-                     soundEngine.playSound('shield_hit');
-                     addFloatingText(b.x, b.y - 12, 'IMMUNE! DESTROY NODES', '#A371F7', 14);
-                     createSmallExplosion(b.x, b.y, '#A371F7');
+                     recordAccuracyHit(b);
+                     emitCoreSeveranceHitFeedback(b.x, b.y, '#A371F7', 'IMMUNE! DESTROY NODES', 'immune');
                      if (!b.isLaser) bulletsRef.current.splice(i, 1);
                   } else {
                      // Vulnerable
                      const dmg = (b.isLaser ? 25 : 10);
                      ufo.health -= dmg;
                      state.bossDamageDealt += dmg;
-                     recordShotHit();
-                     createSmallExplosion(b.x, b.y, '#ffffff');
-                     soundEngine.playSound('heavy_explode');
+                     recordShotHit(b);
+                     emitCoreSeveranceHitFeedback(b.x, b.y, '#ffffff', `🎯 CORE HIT -${Math.floor(dmg)} HP`, 'vulnerable');
                      if (!b.isLaser) bulletsRef.current.splice(i, 1);
                      
                      if (ufo.health <= 0) {
                         destroyUfo(ufo, 20000); // 20k points for final boss
                         break;
-                     } else {
-                        addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `🎯 CORE HIT -${Math.floor(dmg)} HP`, '#A371F7', 20);
                      }
                   }
                 }
@@ -4489,26 +5134,47 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   // OVERHEATED VULNERABLE PHASE: SHIELD DROPPED & Core Defense Exposed!
                   const hitRadius = ufo.radius + 15;
                   if (dist < hitRadius + b.size) {
-                    const dmg = (b.isLaser ? 8 : 12) * 1.2; // 1.2x Damage
+                    const mouthCenterX = ufo.x;
+                    const mouthCenterY = ufo.y + ufo.radius * 0.73;
+                    const mouthRadiusX = ufo.radius * 0.42;
+                    const mouthRadiusY = ufo.radius * 0.27;
+
+                    const normalizedMouthX = (b.x - mouthCenterX) / mouthRadiusX;
+                    const normalizedMouthY = (b.y - mouthCenterY) / mouthRadiusY;
+
+                    const isMouthWeakHit =
+                      normalizedMouthX * normalizedMouthX +
+                      normalizedMouthY * normalizedMouthY <= 1;
+
+                    const baseDamage = b.isLaser ? 8 : 12;
+                    const dmg = isMouthWeakHit ? baseDamage * 3 : baseDamage;
+
                     ufo.health -= dmg;
                     state.bossDamageDealt += dmg;
-                    recordShotHit();
-                    
-                    const isSpam = b.isLaser && b.life % 4 !== 0;
-                    if (!isSpam) {
-                      createSmallExplosion(b.x, b.y, '#ffffff');
-                      soundEngine.playSound('heavy_explode');
+                    recordShotHit(b);
+
+                    if (isMouthWeakHit) {
+                      emitDreadnoughtHitFeedback(
+                        b.x,
+                        b.y,
+                        'vulnerable',
+                        `VENT CRITICAL -${Math.floor(dmg)}`
+                      );
+                    } else {
+                      emitDreadnoughtHitFeedback(
+                        b.x,
+                        b.y,
+                        'armour',
+                        `-${Math.floor(dmg)}`
+                      );
                     }
 
                     if (!b.isLaser) {
                       bulletsRef.current.splice(i, 1);
                     }
-
                     if (ufo.health <= 0) {
                       destroyUfo(ufo, 10000);
                       break;
-                    } else if (!isSpam) {
-                      addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `💥 OVERHEAT CRITICAL -${Math.floor(dmg)} HP`, '#ffff00', 16);
                     }
                   }
                 } else {
@@ -4528,53 +5194,28 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                       const dmg = b.isLaser ? 3 : 5;
                       ufo.health -= dmg;
                       state.bossDamageDealt += dmg;
-                      recordShotHit();
-                      const gapBonus = 300;
-                      addScore(gapBonus, true);
+                                            recordShotHit(b);
                       
-                      const isSpam = b.isLaser && b.life % 4 !== 0;
-                      if (!isSpam) {
-                        addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `GAP HIT +${gapBonus}`, '#00ffff', 18);
-                        createSmallExplosion(b.x, b.y, '#00ffff');
-                        soundEngine.playSound('heavy_explode');
+                      if (!dreadnoughtGapBonusRecordedRef.current.has(b)) {
+                        dreadnoughtGapBonusRecordedRef.current.add(b);
+                        addScore(300, true);
                       }
+                        
+                      emitDreadnoughtHitFeedback(b.x, b.y, 'vulnerable', `CORE HIT -${Math.floor(dmg)}`);
 
                       if (!b.isLaser) {
                         bulletsRef.current.splice(i, 1);
                       }
-
                       if (ufo.health <= 0) {
                         destroyUfo(ufo, 10000);
                         break;
-                      } else if (!isSpam) {
-                        addFloatingText(ufo.x, ufo.y + ufo.radius + 20, `🎯 CRITICAL CORE HIT -${Math.floor(dmg)} HP`, '#00ffff', 20);
                       }
                     } else {
                       // HITS IMPENETRABLE ROTATING SHIELD RING - DEFLECTED!
-                      state.shotsHit++;
+                      recordAccuracyHit(b);
                       state.consecutiveHits = 0;
                       
-                      const isSpam = b.isLaser && b.life % 4 !== 0;
-                      if (!isSpam && particlesRef.current.length < 200) {
-                        soundEngine.playSound('shield_hit');
-                        const sparkCount = particlesRef.current.length > 100 ? 1 : 4;
-                        for (let sp = 0; sp < sparkCount; sp++) {
-                          particlesRef.current.push({
-                            x: b.x,
-                            y: b.y,
-                            vx: Math.cos(impactAngle + (Math.random() - 0.5)) * 6,
-                            vy: Math.sin(impactAngle + (Math.random() - 0.5)) * 6,
-                            life: 14,
-                            maxLife: 14,
-                            size: 2.5,
-                            color: '#00ffff',
-                            shape: 'spark'
-                          });
-                        }
-                        if (Math.random() < 0.25) {
-                          addFloatingText(b.x, b.y - 12, 'SHIELD DEFLECTED!', '#00ffff', 12);
-                        }
-                      }
+                      emitDreadnoughtHitFeedback(b.x, b.y, 'shield', 'DEFLECTED');
                       
                       if (!b.isLaser) {
                         bulletsRef.current.splice(i, 1);
@@ -4591,11 +5232,12 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 }
 
                 ufo.health -= dmg;
-                recordShotHit();
+                recordShotHit(b);
                 
-                if (ufo.type === 'shield_node') {
-                  createSmallExplosion(b.x, b.y, '#A371F7');
-                  soundEngine.playSound('shield_hit');
+                if (ufo.type === 'dreadnought') {
+                  emitDreadnoughtHitFeedback(b.x, b.y, 'armour', `-${Math.floor(dmg)}`);
+                } else if (ufo.type === 'shield_node') {
+                  emitCoreSeveranceHitFeedback(b.x, b.y, '#A371F7', `-${Math.floor(dmg)} HP`, 'node');
                 } else {
                   createSmallExplosion(b.x, b.y, '#ff4444');
                 }
@@ -4609,8 +5251,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   destroyUfo(ufo, pts);
                   break;
                 } else {
-                  const color = ufo.type === 'shield_node' ? '#A371F7' : '#ff6666';
-                  addFloatingText(ufo.x, ufo.y - 15, `-${Math.floor(dmg)} HP`, color, 13);
+                  if (ufo.type !== 'dreadnought' && ufo.type !== 'shield_node') {
+                    const color = ufo.type === 'shield_node' ? '#A371F7' : '#ff6666';
+                    addFloatingText(ufo.x, ufo.y - 15, `-${Math.floor(dmg)} HP`, color, 13);
+                  }
                 }
               }
             }
@@ -4620,9 +5264,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         // UFO Bullets vs Ship
         for (let i = ufoBulletsRef.current.length - 1; i >= 0; i--) {
           const ub = ufoBulletsRef.current[i];
-          ub.x += ub.vx;
-          ub.y += ub.vy;
-          ub.life--;
+          ub.x += ub.vx * timeFactor;
+          ub.y += ub.vy * timeFactor;
+          ub.life -= timeFactor;
 
           // Kinetic Repulsor deflects enemy bullets away from ship!
           if (pTimers.repulsor > 0 && ship.alive) {
@@ -5463,27 +6107,51 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           // 1. TELEGRAPH PHASE (Significantly extended & readable charge up):
           if (ufo.bossState === 'laserCharge') {
             ctx.save();
-            const chargeMax = ufo.type === 'dreadnought' ? 300 : 150;
+            const chargeMax = ufo.type === 'dreadnought' ? 300 : (ufo.bossPhase === 2 ? 120 : 180);
             const chargeRatio = ufo.bossStateTimer ? Math.max(0, 1 - (ufo.bossStateTimer / chargeMax)) : 1;
-            
-            // Outer thick faint warning glow
-            ctx.strokeStyle = `rgba(0, 255, 255, ${0.3 + chargeRatio * 0.4})`;
-            ctx.shadowBlur = 20 + chargeRatio * 20;
-            ctx.shadowColor = '#00ffff';
-            ctx.lineWidth = 15 + chargeRatio * 15;
-            ctx.beginPath();
-            ctx.moveTo(ufo.x, ufo.y);
-            ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
-            ctx.stroke();
 
-            // Inner bright core dash line
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + chargeRatio * 0.5})`;
-            ctx.lineWidth = 3 + chargeRatio * 5;
-            ctx.setLineDash(chargeRatio < 0.85 ? [20 - chargeRatio * 10, 15 - chargeRatio * 5] : []);
-            ctx.beginPath();
-            ctx.moveTo(ufo.x, ufo.y);
-            ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
-            ctx.stroke();
+            const laserLockFrames = ufo.bossPhase === 2 ? 35 : 45;
+            const isCoreLaserLocked = ufo.type === 'core_severance' && (ufo.bossStateTimer ?? 0) <= laserLockFrames;
+
+            if (isCoreLaserLocked) {
+              // Outer warning glow (magenta / crimson)
+              ctx.strokeStyle = `rgba(255, 0, 85, ${0.6 + chargeRatio * 0.4})`;
+              ctx.shadowBlur = 30 + chargeRatio * 20;
+              ctx.shadowColor = '#ff0055';
+              ctx.lineWidth = 18 + chargeRatio * 10;
+              ctx.beginPath();
+              ctx.moveTo(ufo.x, ufo.y);
+              ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
+              ctx.stroke();
+
+              // Solid inner telegraph line brightened to white
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 6 + chargeRatio * 4;
+              ctx.setLineDash([]);
+              ctx.beginPath();
+              ctx.moveTo(ufo.x, ufo.y);
+              ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
+              ctx.stroke();
+            } else {
+              // Outer thick faint warning glow
+              ctx.strokeStyle = `rgba(0, 255, 255, ${0.3 + chargeRatio * 0.4})`;
+              ctx.shadowBlur = 20 + chargeRatio * 20;
+              ctx.shadowColor = '#00ffff';
+              ctx.lineWidth = 15 + chargeRatio * 15;
+              ctx.beginPath();
+              ctx.moveTo(ufo.x, ufo.y);
+              ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
+              ctx.stroke();
+
+              // Inner bright core dash line
+              ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + chargeRatio * 0.5})`;
+              ctx.lineWidth = 3 + chargeRatio * 5;
+              ctx.setLineDash(chargeRatio < 0.85 ? [20 - chargeRatio * 10, 15 - chargeRatio * 5] : []);
+              ctx.beginPath();
+              ctx.moveTo(ufo.x, ufo.y);
+              ctx.lineTo(ufo.x + Math.cos(sweepAngle) * beamDist, ufo.y + Math.sin(sweepAngle) * beamDist);
+              ctx.stroke();
+            }
 
             ctx.setLineDash([]);
             ctx.restore();
@@ -5642,112 +6310,586 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           ctx.arc(0, 0, rad * 0.15, 0, Math.PI * 2);
           ctx.fill();
 
-        } else if (ufo.type === 'triad_core') {
-          // --- WAVE 15 FINAL BOSS: TRIAD PROTOCOL ---
-          const triadCores = ufosRef.current.filter(u => u.type === 'triad_core');
-          const isLinked = triadCores.length > 1;
-          const isBerserk = triadCores.length === 1;
+        } else if (ufo.type === 'technoking') {
+          // --- WAVE 15 FINAL BOSS: THE GRID ARCHITECT ---
           const rad = ufo.radius;
-          
+          const hpRatio = ufo.health / ufo.maxHealth;
+          const phase = ufo.bossPhase || 1;
+          const faceRot = ufo.faceRotation || 0;
+
           ctx.save();
-          // Draw energy beams connecting them (only draw from the first core to avoid overlap)
-          if (isLinked && ufo.id === triadCores[0].id) {
+
+          // 1. Draw World Telegraphs & Attacks from boss center
+          if (ufo.laserSweepTelegraph && ufo.laserSweepTelegraph > 0) {
+            ctx.save();
+            const ang = ufo.laserSweepAngle || (Math.PI / 2);
+            
+            const lockThreshold = phase === 3 ? 45 : (phase === 2 ? 50 : 60);
+            const isLocked = ufo.laserSweepTelegraph <= lockThreshold;
+
+            if (isLocked) {
+              ctx.strokeStyle = '#ffbf00';
+              ctx.lineWidth = 4;
+              ctx.setLineDash([20, 5]);
+            } else {
+              ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+              ctx.lineWidth = 2 + Math.sin(now * 0.05) * 1.5;
+              ctx.setLineDash([12, 8]);
+            }
+
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(ang) * 1600, Math.sin(ang) * 1600);
+            ctx.stroke();
+
+            if (isLocked) {
+              ctx.fillStyle = '#ffbf00';
+              ctx.font = 'bold 16px "Space Grotesk", sans-serif';
+              ctx.textAlign = 'center';
+              ctx.fillText('TARGET LOCKED', Math.cos(ang) * 120, Math.sin(ang) * 120 - 15);
+            }
+            ctx.restore();
+          } else if (ufo.laserSweepFiring && ufo.laserSweepFiring > 0) {
+            ctx.save();
+            const ang = ufo.laserSweepAngle || (Math.PI / 2);
+            ctx.strokeStyle = '#00ffff';
+            ctx.shadowBlur = 35;
+            ctx.shadowColor = '#00ffff';
+            ctx.lineWidth = 60; // visual radius matches collision radius of 35
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(Math.cos(ang) * 1600, Math.sin(ang) * 1600);
+            ctx.stroke();
+
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 20;
+            ctx.stroke();
+            ctx.restore();
+          } else if (ufo.laserSweepRecovery && ufo.laserSweepRecovery > 0) {
+            ctx.save();
+            ctx.fillStyle = phase === 3 ? '#ff00ff' : '#00ffff';
+            ctx.font = 'bold 14px "Space Grotesk", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('CORE RECOVERING', 0, -rad - 20);
+            ctx.restore();
+          }
+
+          if (ufo.orbitalWarning && ufo.orbitalWarning > 0) {
+            ctx.save();
+            const relX = (ufo.orbitalTargetX || 0) - ufo.x;
+            const relY = (ufo.orbitalTargetY || 0) - ufo.y;
+
+            const progress = 1 - (ufo.orbitalWarning / 90);
+            const flash = (now % 200 < 100) && progress > 0.6;
+
+            ctx.translate(relX, relY);
+
+            // Faint grid-convergence lines
+            ctx.strokeStyle = 'rgba(255, 0, 255, 0.2)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) {
+               const ang = (i * Math.PI * 2) / 8 + (now * 0.001);
+               ctx.moveTo(Math.cos(ang) * 20, Math.sin(ang) * 20);
+               ctx.lineTo(Math.cos(ang) * 120, Math.sin(ang) * 120);
+            }
+            ctx.stroke();
+
+            // Segmented outer ring
+            ctx.strokeStyle = flash ? '#ffffff' : '#ff00ff';
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ff00ff';
+            ctx.beginPath();
+            for (let i = 0; i < 4; i++) {
+               ctx.arc(0, 0, 120, i * Math.PI/2 + 0.1, (i+1) * Math.PI/2 - 0.1);
+            }
+            ctx.stroke();
+
+            // Inner ring
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([]);
+            ctx.beginPath();
+            ctx.arc(0, 0, 40, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // X-shaped center guide
+            ctx.beginPath();
+            ctx.moveTo(-15, -15);
+            ctx.lineTo(15, 15);
+            ctx.moveTo(15, -15);
+            ctx.lineTo(-15, 15);
+            ctx.stroke();
+
+            // Shrinking countdown ring
+            const shrinkRad = Math.max(10, 120 * (1 - progress));
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([10, 10]);
+            ctx.beginPath();
+            ctx.arc(0, 0, shrinkRad, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.restore();
+          } else if (ufo.orbitalFiring && ufo.orbitalFiring > 0) {
+            ctx.save();
+            const relX = (ufo.orbitalTargetX || 0) - ufo.x;
+            const relY = (ufo.orbitalTargetY || 0) - ufo.y;
+            const intensity = ufo.orbitalFiring / 35;
+
+            ctx.translate(relX, relY);
+
+            // Tighter inner impact ring
+            ctx.strokeStyle = `rgba(255, 255, 255, ${intensity})`;
+            ctx.lineWidth = 4 * intensity;
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#ff00ff';
+            ctx.beginPath();
+            ctx.arc(0, 0, 60 * intensity, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // Crisp X-shaped burst
+            ctx.strokeStyle = `rgba(255, 0, 255, ${intensity})`;
+            ctx.lineWidth = 8 * intensity;
+            ctx.beginPath();
+            ctx.moveTo(-80 * intensity, -80 * intensity);
+            ctx.lineTo(80 * intensity, 80 * intensity);
+            ctx.moveTo(80 * intensity, -80 * intensity);
+            ctx.lineTo(-80 * intensity, 80 * intensity);
+            ctx.stroke();
+
+            // Brief brighter center flash
+            if (intensity > 0.8) {
+               ctx.fillStyle = '#ffffff';
+               ctx.beginPath();
+               ctx.arc(0, 0, 40, 0, Math.PI * 2);
+               ctx.fill();
+            }
+
+            // Orbital Beam coming from above
+            ctx.strokeStyle = `rgba(255, 255, 255, ${intensity})`;
+            ctx.lineWidth = 60 * intensity;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(0, -2000);
+            ctx.stroke();
+            
+            ctx.strokeStyle = `rgba(255, 0, 255, ${intensity})`;
+            ctx.lineWidth = 100 * intensity;
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          // 2. Rotate Canvas for Grid Architect geometry
+          ctx.rotate(faceRot);
+          
+          const isCritical = hpRatio <= 0.10;
+          
+          if (isCritical) {
+             const wobbleX = (Math.random() - 0.5) * 4;
+             const wobbleY = (Math.random() - 0.5) * 4;
+             ctx.translate(wobbleX, wobbleY);
+          }
+
+          // Grid Citadel Rendering
+          const primaryColor = phase === 3 ? '#ff00ff' : '#00ffff';
+          let coreColor = phase === 3 ? '#ffffff' : (phase === 2 ? '#ffbf00' : '#ffffff');
+          const rimColor = phase === 3 ? '#ff00ff' : (phase === 2 ? '#ffbf00' : '#00ffff');
+          
+          if (isCritical && Math.random() < 0.3) {
+            coreColor = '#ff00ff';
+          }
+          
+          // 8. Physical sweep-beam emitter (underneath armour)
+          if ((ufo.laserSweepTelegraph && ufo.laserSweepTelegraph > 0) || (ufo.laserSweepFiring && ufo.laserSweepFiring > 0)) {
+            const localBeamAngle = (ufo.laserSweepAngle || Math.PI / 2) - faceRot;
+            ctx.save();
+            ctx.rotate(localBeamAngle);
+            
+            const isFiring = ufo.laserSweepFiring && ufo.laserSweepFiring > 0;
+            const glowColor = isFiring ? '#ffffff' : '#00ffff';
+            const railLen = rad + 15;
+            
+            ctx.shadowBlur = isFiring ? 40 : 15;
+            ctx.shadowColor = glowColor;
+            
+            ctx.fillStyle = isFiring ? '#ffffff' : 'rgba(0, 255, 255, 0.5)';
+            ctx.beginPath();
+            ctx.moveTo(rad * 0.4, -20);
+            ctx.lineTo(railLen, -15);
+            ctx.lineTo(railLen, 15);
+            ctx.lineTo(rad * 0.4, 20);
+            ctx.fill();
+
+            ctx.strokeStyle = glowColor;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(rad * 0.4, -20);
+            ctx.lineTo(railLen, -20);
+            ctx.moveTo(rad * 0.4, 20);
+            ctx.lineTo(railLen, 20);
+            ctx.stroke();
+            ctx.restore();
+          }
+
+          // 1. Solid Angular Backplate
+          const backplateSides = 16;
+          const backplateRad = rad * 0.92;
+          ctx.save();
+          if (phase === 3) {
+            ctx.setLineDash([20, 10]); // Fractured rim
+          }
+          
+          if (isCritical && Math.random() < 0.2) {
+             ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+             ctx.fillRect(-backplateRad, -backplateRad, backplateRad * 2, backplateRad * 2);
+          }
+          const bgGrad = ctx.createRadialGradient(0, 0, backplateRad * 0.3, 0, 0, backplateRad);
+          bgGrad.addColorStop(0, '#050810');
+          bgGrad.addColorStop(1, '#09111c');
+          
+          ctx.fillStyle = bgGrad;
+          ctx.strokeStyle = rimColor;
+          ctx.lineWidth = 6;
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = rimColor;
+          
+          ctx.beginPath();
+          for (let i = 0; i < backplateSides; i++) {
+            const a = (i * Math.PI * 2) / backplateSides;
+            const pr = i % 2 === 0 ? backplateRad : backplateRad * 0.95;
+            const px = Math.cos(a) * pr;
+            const py = Math.sin(a) * pr;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+
+          // 3. Strong Angular Silhouette (Pylons)
+          ctx.save();
+          ctx.fillStyle = '#050810';
+          ctx.strokeStyle = primaryColor;
+          ctx.lineWidth = 2;
+          for (let i = 0; i < 6; i++) {
+             const a = (i * Math.PI * 2) / 6;
              ctx.save();
-             // Draw connecting laser tethers
-             ctx.lineWidth = 6 + Math.sin(now * 0.015) * 3;
-             ctx.strokeStyle = '#00ffff';
-             ctx.shadowBlur = 30;
-             ctx.shadowColor = '#00ffff';
+             ctx.rotate(a);
              ctx.beginPath();
-             for(let c = 0; c < triadCores.length; c++) {
-                const core = triadCores[c];
-                if (c === 0) ctx.moveTo(core.x, core.y);
-                else ctx.lineTo(core.x, core.y);
-             }
-             if (triadCores.length > 2) ctx.closePath();
-             ctx.stroke();
-             
-             // Inner brighter beam
-             ctx.lineWidth = 2;
-             ctx.strokeStyle = '#ffffff';
-             ctx.shadowBlur = 10;
-             ctx.beginPath();
-             for(let c = 0; c < triadCores.length; c++) {
-                const core = triadCores[c];
-                if (c === 0) ctx.moveTo(core.x, core.y);
-                else ctx.lineTo(core.x, core.y);
-             }
-             if (triadCores.length > 2) ctx.closePath();
+             ctx.moveTo(backplateRad * 0.8, -15);
+             ctx.lineTo(rad + 12, -8);
+             ctx.lineTo(rad + 12, 8);
+             ctx.lineTo(backplateRad * 0.8, 15);
+             ctx.closePath();
+             ctx.fill();
              ctx.stroke();
              ctx.restore();
           }
+          ctx.restore();
 
-          ctx.translate(ufo.x, ufo.y);
-          
-          const pulse = (Math.sin(now * (isBerserk ? 0.02 : 0.01)) + 1) / 2;
-          const coreColor = isBerserk ? '#ff0055' : '#a855f7';
-          const accentColor = isBerserk ? '#ffaa00' : '#00ffff';
-
-          // Outer corrupted rings
+          // 7. Rails (Polygonal)
+          const railRotBase = now * (phase === 3 ? 0.0015 : (phase === 2 ? 0.0008 : 0.0004));
           ctx.save();
-          ctx.rotate(now * (isBerserk ? 0.005 : 0.002));
-          ctx.strokeStyle = coreColor;
-          ctx.shadowBlur = 20 + pulse * 20;
-          ctx.shadowColor = coreColor;
-          ctx.lineWidth = 4;
+          ctx.rotate(railRotBase);
+          ctx.strokeStyle = primaryColor;
+          ctx.lineWidth = 3;
+          if (phase === 3) ctx.setLineDash([15, 20]);
+          else ctx.setLineDash([40, 10]);
           
-          // Hexagon orbit
           ctx.beginPath();
-          for(let i=0; i<6; i++) {
-             const a = (i/6) * Math.PI * 2;
-             const r = rad * 1.1 + Math.sin(now * 0.01 + i) * 10;
-             if (i===0) ctx.moveTo(Math.cos(a)*r, Math.sin(a)*r);
-             else ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+          for (let i = 0; i < 12; i++) {
+             const a = (i * Math.PI * 2) / 12;
+             const px = Math.cos(a) * (rad * 0.82);
+             const py = Math.sin(a) * (rad * 0.82);
+             if (i === 0) ctx.moveTo(px, py);
+             else ctx.lineTo(px, py);
           }
           ctx.closePath();
           ctx.stroke();
           
-          // Outer nodes
-          ctx.fillStyle = accentColor;
-          for(let i=0; i<6; i++) {
-             const a = (i/6) * Math.PI * 2;
-             const r = rad * 1.1 + Math.sin(now * 0.01 + i) * 10;
-             ctx.beginPath();
-             ctx.arc(Math.cos(a)*r, Math.sin(a)*r, 6, 0, Math.PI*2);
-             ctx.fill();
+          ctx.rotate(-railRotBase * 2.5);
+          ctx.beginPath();
+          if (phase === 3) ctx.setLineDash([10, 15]);
+          else ctx.setLineDash([25, 15]);
+          for (let i = 0; i < 8; i++) {
+             const a = (i * Math.PI * 2) / 8;
+             const px = Math.cos(a) * (rad * 0.55);
+             const py = Math.sin(a) * (rad * 0.55);
+             if (i === 0) ctx.moveTo(px, py);
+             else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.stroke();
+          
+          ctx.setLineDash([10, 30]);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 0.65, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+
+          // 2. Six heavy armour wedges
+          const innerRad = rad * 0.48;
+          const outerRad = rad * 0.88;
+          
+          for (let i = 0; i < 6; i++) {
+            const baseAngle = (i * Math.PI * 2) / 6;
+            let isMissing = false;
+            let pOffsetX = 0;
+            let pOffsetY = 0;
+            
+            if (phase === 3) {
+               if (i === 1 || i === 4) isMissing = true;
+               else {
+                 pOffsetX = Math.cos(now * 0.002 + i) * 8;
+                 pOffsetY = Math.sin(now * 0.002 + i) * 8;
+               }
+            }
+            
+            if (!isMissing) {
+              ctx.save();
+              ctx.rotate(baseAngle);
+              ctx.translate(pOffsetX, pOffsetY);
+              
+              const isReflective = phase === 2 && Math.sin(baseAngle) > 0.1;
+              
+              let fillStyle = '#101827';
+              let bevelStyle = '#1f2937';
+              let edgeStyle = '#00ffff';
+              
+              if (isReflective) {
+                fillStyle = '#cffff0'; 
+                bevelStyle = '#ffffff';
+                edgeStyle = '#00ffff';
+              } else if (phase === 2) {
+                fillStyle = '#050810'; 
+                bevelStyle = '#0a101f';
+                edgeStyle = '#ffbf00';
+              } else if (phase === 3) {
+                edgeStyle = '#ff00ff';
+              }
+              if (isCritical && Math.random() < 0.15) {
+                edgeStyle = '#ffffff';
+                fillStyle = 'rgba(255, 0, 255, 0.3)'; // internal light leaking
+              }
+              
+              ctx.fillStyle = fillStyle;
+              ctx.strokeStyle = edgeStyle;
+              ctx.lineWidth = 2;
+              
+              const gap = 0.08;
+              ctx.beginPath();
+              ctx.arc(0, 0, innerRad, -Math.PI/6 + gap, Math.PI/6 - gap);
+              ctx.arc(0, 0, outerRad, Math.PI/6 - gap, -Math.PI/6 + gap, true);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+              
+              ctx.strokeStyle = bevelStyle;
+              ctx.lineWidth = 4;
+              ctx.beginPath();
+              ctx.arc(0, 0, innerRad + 4, -Math.PI/6 + gap + 0.02, Math.PI/6 - gap - 0.02);
+              ctx.stroke();
+              
+              ctx.strokeStyle = phase === 3 ? '#ff00ff' : '#00ffff';
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(innerRad + 10, 0);
+              ctx.lineTo(outerRad - 20, 0);
+              ctx.stroke();
+              
+              // 6. Embedded relay lens
+              const relayDist = outerRad - 15;
+              ctx.fillStyle = '#000000'; 
+              ctx.beginPath();
+              ctx.arc(relayDist, 0, 7, 0, Math.PI*2);
+              ctx.fill();
+              
+              ctx.strokeStyle = '#00ffff'; 
+              ctx.lineWidth = 2;
+              ctx.stroke();
+              
+              ctx.fillStyle = '#ffffff'; 
+              ctx.beginPath();
+              ctx.arc(relayDist, 0, 3, 0, Math.PI*2);
+              ctx.fill();
+              
+              if (isReflective) {
+                ctx.strokeStyle = 'rgba(0, 255, 255, 0.6)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                for (let scan = innerRad + 10; scan < outerRad - 10; scan += 15) {
+                   ctx.moveTo(scan, -10);
+                   ctx.lineTo(scan, 10);
+                }
+                ctx.stroke();
+              }
+              
+              ctx.restore();
+            } else if (phase === 3) {
+               ctx.save();
+               ctx.rotate(baseAngle + now * 0.001);
+               const fragDist = rad + 30 + Math.sin(now * 0.002) * 15;
+               ctx.translate(fragDist, 0);
+               ctx.rotate(now * 0.003);
+               
+               ctx.fillStyle = '#050810';
+               ctx.strokeStyle = '#ff00ff';
+               ctx.lineWidth = 2;
+               ctx.beginPath();
+               ctx.moveTo(-15, -10);
+               ctx.lineTo(15, -5);
+               ctx.lineTo(10, 15);
+               ctx.lineTo(-10, 10);
+               ctx.closePath();
+               ctx.fill();
+               ctx.stroke();
+               ctx.restore();
+            }
+          }
+
+          // 4. Central Citadel Structure
+          const citadelRad = rad * 0.48;
+          ctx.save();
+          ctx.fillStyle = '#000000'; 
+          ctx.strokeStyle = rimColor; 
+          ctx.lineWidth = 5;
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = rimColor;
+          
+          ctx.beginPath();
+          for(let i=0; i<8; i++) {
+             const a = i * Math.PI / 4;
+             const px = Math.cos(a) * citadelRad;
+             const py = Math.sin(a) * citadelRad;
+             if (i===0) ctx.moveTo(px, py);
+             else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          
+          ctx.strokeStyle = '#1f2937';
+          ctx.lineWidth = 8;
+          ctx.beginPath();
+          ctx.moveTo(-citadelRad, -citadelRad);
+          ctx.lineTo(citadelRad, citadelRad);
+          ctx.moveTo(-citadelRad, citadelRad);
+          ctx.lineTo(citadelRad, -citadelRad);
+          ctx.stroke();
+          
+          ctx.strokeStyle = phase === 3 ? '#ff3b81' : '#00ffff';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-citadelRad * 0.8, 0);
+          ctx.lineTo(-20, -20);
+          ctx.moveTo(citadelRad * 0.8, 0);
+          ctx.lineTo(20, -20);
+          ctx.stroke();
+          
+          if (phase === 3) {
+             const flicker = Math.floor(now / 50) % 2 === 0;
+             if (flicker) {
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(0, 0, citadelRad * 0.6, 0, Math.PI * 2);
+                ctx.stroke();
+             }
           }
           ctx.restore();
 
-          // Central Faceted Mainframe
-          ctx.rotate(-now * 0.001);
+          // 5. Recessed Luminous Weak Core
+          ctx.save();
+          ctx.translate(0, -20);
           
-          const grad = ctx.createRadialGradient(0, 0, rad * 0.1, 0, 0, rad);
-          grad.addColorStop(0, '#ffffff');
-          grad.addColorStop(0.3, coreColor);
-          grad.addColorStop(1, '#05030f');
-          
-          ctx.fillStyle = grad;
-          ctx.strokeStyle = accentColor;
-          ctx.lineWidth = 3;
+          ctx.fillStyle = '#020408';
+          ctx.strokeStyle = rimColor;
+          ctx.lineWidth = 4;
           ctx.beginPath();
-          ctx.moveTo(0, -rad);
-          ctx.lineTo(rad * 0.866, -rad * 0.5);
-          ctx.lineTo(rad * 0.866, rad * 0.5);
-          ctx.lineTo(0, rad);
-          ctx.lineTo(-rad * 0.866, rad * 0.5);
-          ctx.lineTo(-rad * 0.866, -rad * 0.5);
+          for(let i=0; i<8; i++) {
+             const a = i * Math.PI / 4;
+             const px = Math.cos(a) * 40;
+             const py = Math.sin(a) * 40;
+             if (i===0) ctx.moveTo(px, py);
+             else ctx.lineTo(px, py);
+          }
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
           
-          // Inner eye / core
-          ctx.fillStyle = isBerserk ? '#ffaa00' : '#ffffff';
-          ctx.shadowBlur = 40;
-          ctx.shadowColor = ctx.fillStyle;
+          const shutterCount = 6;
+          ctx.fillStyle = '#101827';
+          ctx.strokeStyle = '#374151';
+          ctx.lineWidth = 1;
+          for(let i=0; i<shutterCount; i++) {
+             ctx.save();
+             ctx.rotate(i * Math.PI*2/shutterCount + (phase === 3 ? now * 0.001 : 0));
+             ctx.beginPath();
+             ctx.moveTo(22, 0);
+             ctx.lineTo(38, 15);
+             ctx.lineTo(38, -15);
+             ctx.closePath();
+             ctx.fill();
+             ctx.stroke();
+             ctx.restore();
+          }
+          
+          let finalCoreColor = coreColor;
+          if (ufo.laserSweepRecovery && ufo.laserSweepRecovery > 0) {
+            // Pulse white/cyan or white/magenta depending on phase
+            const altColor = phase === 3 ? '#ff00ff' : '#00ffff';
+            finalCoreColor = (Math.floor(now / 150) % 2 === 0) ? '#ffffff' : altColor;
+          }
+
+          const corePulse = Math.sin(now * 0.005) * 2;
+          const innerCoreRad = 20 + corePulse;
+          
+          ctx.shadowBlur = 30 + corePulse * 5;
+          ctx.shadowColor = finalCoreColor;
+          ctx.fillStyle = finalCoreColor;
           ctx.beginPath();
-          ctx.ellipse(0, 0, rad * 0.2, rad * 0.4 + pulse * rad * 0.1, 0, 0, Math.PI*2);
+          ctx.arc(0, 0, innerCoreRad, 0, Math.PI * 2);
           ctx.fill();
           
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowBlur = 10;
+          ctx.beginPath();
+          ctx.arc(0, 0, innerCoreRad * 0.5, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.restore();
+
+          ctx.restore();
+        } else if (ufo.type === 'techno_drone') {
+          // --- TECHNO DRONE DRAWING ---
+          const rad = ufo.radius;
+          ctx.save();
+          ctx.translate(ufo.x, ufo.y);
+          ctx.rotate(now * 0.005);
+
+          ctx.strokeStyle = '#00ffff';
+          ctx.shadowBlur = 15;
+          ctx.shadowColor = '#00ffff';
+          ctx.lineWidth = 2.5;
+
+          ctx.beginPath();
+          ctx.moveTo(0, -rad);
+          ctx.lineTo(rad * 0.8, rad * 0.6);
+          ctx.lineTo(-rad * 0.8, rad * 0.6);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(0, 255, 255, 0.15)';
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 0.3, 0, Math.PI * 2);
+          ctx.fill();
+
           ctx.restore();
 
         } else if (ufo.type === 'core_severance') {
@@ -6017,7 +7159,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           if (isOverheated) {
             ctx.shadowBlur = 50 + Math.random() * 20;
             ctx.shadowColor = '#ffffff';
-            if (Math.random() < 0.2) {
+            if (
+              particlesRef.current.length < 135 &&
+              Math.random() < 0.15
+            ) {
               particlesRef.current.push({
                 x: ufo.x + (Math.random() - 0.5) * rad,
                 y: ufo.y + (Math.random() - 0.5) * rad,
@@ -7672,7 +8817,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           if (pTimers.golden > 0) {
             activeBadges.push({ label: 'GOLD', color: '#ffd700' });
           }
-          if (pTimers.triple > 0) {
+          if (pTimers.tripleShot > 0) {
             activeBadges.push({ label: 'TRIPLE', color: '#00ffcc' });
           }
           if (pTimers.laser > 0) {
@@ -8084,8 +9229,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       }
 
       // 13. Dedicated Boss Health Bar UI
-      const triadCores = ufosRef.current.filter(u => u.type === 'triad_core');
-      const activeBoss = triadCores.length > 0 ? triadCores[0] : ufosRef.current.find((u) => u.isBoss);
+      const activeBoss = ufosRef.current.find((u) => u.isBoss);
       if (activeBoss) {
         ctx.save();
         const barW = Math.min(480, width * 0.65);
@@ -8103,7 +9247,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         }
         ctx.globalAlpha = bossBarAlpha;
 
-        const isTriad = triadCores.length > 0;
         let totalHealth = activeBoss.health;
         let totalMaxHealth = activeBoss.maxHealth;
         let bossTitle = '';
@@ -8111,13 +9254,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         let barColor = 'rgba(225, 29, 72, 0.8)';
         let isOverheated = false;
 
-        if (isTriad) {
-           totalHealth = triadCores.reduce((sum, c) => sum + c.health, 0);
-           totalMaxHealth = triadCores.reduce((sum, c) => sum + (c.maxHealth || 1), 0);
-           const phaseText = triadCores.length === 1 ? 'FINAL CORE BERSERK' : `${triadCores.length} CORES ACTIVE`;
-           bossTitle = `⚠️ TRIAD PROTOCOL (${phaseText}) ⚠️`;
-           titleColor = triadCores.length === 1 ? '#ff0055' : '#00ffff';
-           barColor = triadCores.length === 1 ? 'rgba(255, 0, 85, 0.9)' : 'rgba(0, 255, 255, 0.8)';
+        if (activeBoss.type === 'technoking') {
+           totalHealth = activeBoss.health;
+           totalMaxHealth = activeBoss.maxHealth;
+           const phaseLabel = activeBoss.bossPhase === 3 ? 'CORE COLLAPSE' : (activeBoss.bossPhase === 2 ? 'GRID REWRITE' : 'RELAY MATRIX');
+           bossTitle = `THE GRID ARCHITECT • ${phaseLabel}`;
+           titleColor = activeBoss.bossPhase === 3 ? '#ff00ff' : (activeBoss.bossPhase === 2 ? '#ffbf00' : '#00ffff');
+           barColor = activeBoss.bossPhase === 3 ? 'rgba(255, 0, 255, 0.95)' : (activeBoss.bossPhase === 2 ? 'rgba(255, 191, 0, 0.9)' : 'rgba(0, 255, 255, 0.9)');
         } else {
            isOverheated = activeBoss.bossState === 'cooldown';
            const phaseLabel = activeBoss.bossPhase === 2 ? 'PHASE 2 - OVERDRIVE' : 'PHASE 1 - TACTICAL';
@@ -8191,15 +9334,43 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         let statusText = '🛡️ STATUS: SHIELDED';
         let statusColor = '#00ffff';
         
-        if (activeBoss.bossState === 'cooldown') {
-           statusText = '🔥 SYSTEM: OVERHEATED - VULNERABLE 🔥';
-           statusColor = '#ffff00';
-        } else if (activeBoss.bossState === 'laserCharge') {
-           statusText = '⚠️ SYSTEM: CHARGING ⚠️';
+        if (activeBoss.type === 'technoking') {
+           statusText = 'MATRIX ACTIVE';
            statusColor = '#00ffff';
-        } else if (activeBoss.bossState === 'laserFire') {
-           statusText = '💥 SYSTEM: FIRING LASER 💥';
-           statusColor = '#ff0055';
+           
+           if (activeBoss.orbitalFiring && activeBoss.orbitalFiring > 0) {
+             statusText = 'GRID STRIKE ACTIVE';
+             statusColor = '#ff0055';
+           } else if (activeBoss.orbitalWarning && activeBoss.orbitalWarning > 0) {
+             statusText = 'GRID STRIKE TARGETING';
+             statusColor = '#ff0055';
+           } else if (activeBoss.laserSweepFiring && activeBoss.laserSweepFiring > 0) {
+             statusText = 'SWEEP BEAM ACTIVE';
+             statusColor = '#ff0055';
+           } else if (activeBoss.laserSweepTelegraph && activeBoss.laserSweepTelegraph > 0) {
+             const lockThreshold = activeBoss.bossPhase === 3 ? 45 : (activeBoss.bossPhase === 2 ? 50 : 60);
+             if (activeBoss.laserSweepTelegraph <= lockThreshold) {
+                statusText = 'TARGET LOCKED • EVADE';
+                statusColor = '#ffbf00';
+             } else {
+                statusText = 'SWEEP BEAM TRACKING';
+                statusColor = '#ff0055';
+             }
+           } else if (activeBoss.laserSweepRecovery && activeBoss.laserSweepRecovery > 0) {
+             statusText = 'CORE RECOVERY • ATTACK NOW';
+             statusColor = activeBoss.bossPhase === 3 ? '#ff00ff' : '#00ffff';
+           }
+        } else {
+           if (activeBoss.bossState === 'cooldown') {
+              statusText = '🔥 SYSTEM: OVERHEATED - VULNERABLE 🔥';
+              statusColor = '#ffff00';
+           } else if (activeBoss.bossState === 'laserCharge') {
+              statusText = '⚠️ SYSTEM: CHARGING ⚠️';
+              statusColor = '#00ffff';
+           } else if (activeBoss.bossState === 'laserFire') {
+              statusText = '💥 SYSTEM: FIRING LASER 💥';
+              statusColor = '#ff0055';
+           }
         }
 
         ctx.font = 'bold 11px font-mono, sans-serif';
@@ -8354,9 +9525,77 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   ]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="w-full h-full block bg-[#0A0C10] cursor-crosshair touch-none select-none"
-    />
+    <div className="relative w-full h-full">
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full block bg-[#0A0C10] cursor-crosshair touch-none select-none"
+      />
+      {showContinueOffer && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+           <div className="bg-[#161B22] p-8 border border-[#ff00ff] rounded-xl flex flex-col items-center max-w-md mx-auto text-center shadow-[0_0_50px_rgba(255,0,255,0.3)]">
+             <h2 className="text-3xl font-black text-white mb-2 tracking-widest drop-shadow-lg">CONTINUE?</h2>
+             <p className="text-gray-300 mb-8 font-medium">RESTORE 3 SHIPS AND RESUME THE GRID ARCHITECT FIGHT</p>
+             <div className="flex gap-4">
+               <button
+                 onClick={() => {
+                   setShowContinueOffer(false);
+                   gameStateRef.current.gridArchitectContinueUsed = true;
+                   gameStateRef.current.lives = 3;
+                   callbacksRef.current.onLivesUpdate(3);
+                   
+                   if (shipRef.current) {
+                     shipRef.current.alive = true;
+                     shipRef.current.hullPower = shipRef.current.maxHullPower;
+                     callbacksRef.current.onHullPowerUpdate?.(shipRef.current.maxHullPower, shipRef.current.maxHullPower);
+                     shipRef.current.x = window.innerWidth / 2;
+                     shipRef.current.y = window.innerHeight / 2;
+                     shipRef.current.vx = 0;
+                     shipRef.current.vy = 0;
+                     shipRef.current.invincibleTimer = 180; // 3 sec
+                   }
+                   
+                   gameStateRef.current.gameRunning = true;
+                 }}
+                 className="px-6 py-3 bg-[#ff00ff] hover:bg-[#ff00cc] text-white font-bold rounded shadow-[0_0_15px_rgba(255,0,255,0.5)] transition-all cursor-pointer"
+               >
+                 CONTINUE
+               </button>
+               <button
+                 onClick={() => {
+                   setShowContinueOffer(false);
+                   // Proceed to normal game over
+                   callbacksRef.current.onStatsRecord(
+                     gameStateRef.current.asteroidsDestroyed,
+                     gameStateRef.current.ufosDestroyed,
+                     gameStateRef.current.shotsFired,
+                     gameStateRef.current.shotsHit,
+                     gameStateRef.current.empUsed,
+                     gameStateRef.current.score,
+                     gameStateRef.current.wave,
+                     gameStateRef.current.maxCombo,
+                     gameStateRef.current.bossDamageDealt
+                   );
+                   const acc = gameStateRef.current.shotsFired > 0
+                     ? Math.min(100, Math.max(0, Math.round((gameStateRef.current.shotsHit / gameStateRef.current.shotsFired) * 100)))
+                     : 0;
+                   callbacksRef.current.onGameOver(
+                     gameStateRef.current.score,
+                     gameStateRef.current.wave,
+                     gameStateRef.current.asteroidsDestroyed,
+                     acc,
+                     gameStateRef.current.maxCombo,
+                     gameStateRef.current.ufosDestroyed,
+                     gameStateRef.current.bossDamageDealt
+                   );
+                 }}
+                 className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white font-bold rounded transition-all cursor-pointer"
+               >
+                 QUIT
+               </button>
+             </div>
+           </div>
+        </div>
+      )}
+    </div>
   );
 };

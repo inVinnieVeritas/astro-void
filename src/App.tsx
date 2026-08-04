@@ -17,18 +17,15 @@ export default function App() {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
 
   useEffect(() => {
-    const checkTouch = () => {
-      const hasTouch =
-        'ontouchstart' in window ||
-        navigator.maxTouchPoints > 0 ||
-        (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) ||
-        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-        window.innerWidth <= 1024;
-      setIsTouchDevice(hasTouch);
+    const handleTouchStart = () => {
+      setIsTouchDevice(true);
     };
-    checkTouch();
-    window.addEventListener('resize', checkTouch);
-    return () => window.removeEventListener('resize', checkTouch);
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true, once: true });
+
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart);
+    };
   }, []);
   const [controlScheme, setControlScheme] = useState<ControlScheme>('classic');
 
@@ -303,27 +300,20 @@ export default function App() {
     });
   }, []);
 
-  const handleStartGame = useCallback(() => {
-    setScore(0);
-    setWave(gameMode === 'wave_15_boss' ? 15 : gameMode === 'wave_10_boss' ? 10 : gameMode === 'boss_rush' ? 5 : 1);
-    setLives(gameMode === 'zen' ? 99 : 3);
-    setEmpCount(1);
-    setHyperspaceCooldown(0);
-    setHullPower(100);
-    setActivePowerups({});
-    setIsGameOver(false);
-    setIsNewHighScore(false);
-    setIsPaused(false);
-    setGameStarted(true);
-    setGameKey((prev) => prev + 1);
-    soundEngine.init();
-    soundEngine.startMusic();
-  }, [gameMode]);
+const getInitialWaveForMode = (mode: GameMode): number => {
+  return mode === 'wave_15_boss' ? 15 : mode === 'wave_10_boss' ? 10 : mode === 'boss_rush' ? 5 : 1;
+};
+const getInitialLivesForMode = (mode: GameMode): number => {
+  return mode === 'zen' ? 99 : mode === 'survival' ? 1 : 3;
+};
 
-  const handleRestart = useCallback(() => {
+
+
+  const restartGameForMode = useCallback((mode: GameMode) => {
+    setGameMode(mode);
     setScore(0);
-    setWave(gameMode === 'wave_15_boss' ? 15 : gameMode === 'wave_10_boss' ? 10 : gameMode === 'boss_rush' ? 5 : 1);
-    setLives(gameMode === 'zen' ? 99 : 3);
+    setWave(getInitialWaveForMode(mode));
+    setLives(getInitialLivesForMode(mode));
     setEmpCount(1);
     setHyperspaceCooldown(0);
     setHullPower(100);
@@ -335,7 +325,23 @@ export default function App() {
     setGameKey((prev) => prev + 1);
     soundEngine.init();
     soundEngine.startMusic();
-  }, [gameMode]);
+  }, []);
+
+  const handleSettingsModeChange = useCallback(
+    (mode: GameMode) => {
+      if (gameStarted) {
+        restartGameForMode(mode);
+      } else {
+        setGameMode(mode);
+      }
+    },
+    [gameStarted, restartGameForMode]
+  );
+
+  const handleStartGame = useCallback(() => restartGameForMode(gameMode), [gameMode, restartGameForMode]);
+  const handleRestart = useCallback(() => restartGameForMode(gameMode), [gameMode, restartGameForMode]);
+
+
 
   const handleGameOver = useCallback(
     (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => {
@@ -388,11 +394,11 @@ export default function App() {
         unlockAchievement('sharpshooter');
       }
     },
-    [highScore, gameMode, unlockAchievement]
+    [highScore, gameMode, unlockAchievement, pilotName]
   );
 
   const handleStatsRecord = useCallback(
-    (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number) => {
+    (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number, maxCombo: number, bossDamageDealt: number) => {
       setLifetimeStats((prev) => {
         const updated: LifetimeStats = {
           gamesPlayed: prev.gamesPlayed + 1,
@@ -413,7 +419,7 @@ export default function App() {
       if (asteroids > 0) unlockAchievement('first_blood');
 
       // Check Challenges
-      const accuracy = shotsFired > 0 ? Math.round((shotsHit / shotsFired) * 100) : 0;
+      const accuracy = shotsFired > 0 ? Math.min(100, Math.max(0, Math.round((shotsHit / shotsFired) * 100))) : 0;
       const newlyCompleted: string[] = [];
       const check = (id: string, condition: boolean) => {
         if (condition && !completedChallenges.includes(id) && !newlyCompleted.includes(id)) {
@@ -423,10 +429,10 @@ export default function App() {
 
       check('wave_10', gameMode === 'classic' && finalWave >= 10);
       check('purist', gameMode === 'classic' && finalWave >= 10 && empUsed === 0);
-      check('chain_reaction', gameOverStats.maxCombo >= 15);
+      check('chain_reaction', maxCombo >= 15);
       check('marksman', finalWave >= 8 && shotsFired >= 50 && accuracy >= 70);
       check('ufo_hunter', ufos >= 3);
-      check('boss_veteran', gameOverStats.bossDamageDealt >= 2000);
+      check('boss_veteran', bossDamageDealt >= 2000);
       check('survival_master', gameMode === 'survival' && finalWave >= 8);
 
       if (newlyCompleted.length > 0) {
@@ -437,7 +443,7 @@ export default function App() {
         } catch (e) {}
       }
     },
-    [unlockAchievement, gameMode, completedChallenges, gameOverStats]
+    [unlockAchievement, gameMode, completedChallenges]
   );
 
   // Mute Toggle
@@ -465,6 +471,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleGlobalKeys);
   }, [gameStarted, handleToggleMute]);
 
+  const effectivePaused = isPaused || !gameStarted || showSettings || showLeaderboard || showAchievements || showChallenges;
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0A0C10] text-[#E6EDF3] font-sans select-none">
       {/* Main Asteroids Canvas Engine */}
@@ -473,8 +481,9 @@ export default function App() {
         key={gameKey}
         gameMode={gameMode}
         initialWave={wave}
+        initialLives={lives}
         controlScheme={controlScheme}
-        isPaused={isPaused || !gameStarted}
+        isPaused={effectivePaused}
         crtFilter={crtFilter}
         screenShakeEnabled={screenShake}
         onScoreUpdate={setScore}
@@ -541,6 +550,7 @@ export default function App() {
       <>
       {/* Mobile/Tablet Touch Controls */}
       <TouchControls
+        isPaused={effectivePaused}
         onThrustStart={() => {
           const evt = new KeyboardEvent('keydown', { key: 'w' });
           window.dispatchEvent(evt);
@@ -615,7 +625,7 @@ export default function App() {
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         gameMode={gameMode}
-        onChangeGameMode={setGameMode}
+        onChangeGameMode={handleSettingsModeChange}
         controlScheme={controlScheme}
         onChangeControlScheme={setControlScheme}
         masterVolume={masterVolume}
@@ -628,7 +638,7 @@ export default function App() {
         onToggleCrtFilter={() => setCrtFilter((p) => !p)}
         screenShake={screenShake}
         onToggleScreenShake={() => setScreenShake((p) => !p)}
-        onRestartCurrentGame={handleRestart}
+
       />
 
       {/* Leaderboard Modal */}

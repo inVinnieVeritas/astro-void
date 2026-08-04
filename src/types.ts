@@ -54,6 +54,8 @@ export interface Bullet {
   isMine?: boolean;
   color?: string;
   isPlayer: boolean;
+  countsForAccuracy?: boolean;
+  accuracyHitRecorded?: boolean;
 }
 
 export interface UFO {
@@ -65,7 +67,7 @@ export interface UFO {
   radius: number;
   speed: number;
   shootTimer: number;
-  type: 'scout' | 'mothership' | 'hunter' | 'swarmer' | 'dreadnought' | 'supply' | 'mine' | 'core_severance' | 'shield_node' | 'triad_core';
+  type: 'scout' | 'mothership' | 'hunter' | 'swarmer' | 'dreadnought' | 'supply' | 'mine' | 'core_severance' | 'shield_node' | 'technoking' | 'techno_drone';
   health: number;
   maxHealth: number;
   angle: number;
@@ -87,23 +89,39 @@ export interface UFO {
   consumeTargetX?: number;
   consumeTargetY?: number;
   isBoss?: boolean;
-  bossPhase?: 1 | 2;
+  bossPhase?: 1 | 2 | 3;
   bossState?: 'burst' | 'laserCharge' | 'laserFire' | 'cooldown' | 'mines';
   bossStateTimer?: number;
   laserTargetAngle?: number;
-  laserTargetX?: number;
-  laserTargetY?: number;
-  laserChargeProgress?: number;
-  laserFiringTimer?: number;
   shieldAngle?: number;
-  gridSweepTelegraph?: number;
-  gridSweepFiring?: number;
-  gridSweepAngle?: number;
   overheatTimer?: number;
   isMinion?: boolean;
   minionSpawnTimer?: number;
   nextMinionInterval?: number;
   hasDroppedOverheatPowerup?: boolean;
+  faceRotation?: number;
+  laserSweepTelegraph?: number;
+  laserSweepFiring?: number;
+  laserSweepRecovery?: number;
+  architectRecoveryCount?: number;
+  laserSweepAngle?: number;
+  tweetStormTimer?: number;
+  marsCannonWarning?: number;
+  marsCannonFiring?: number;
+  marsTargetX?: number;
+  marsTargetY?: number;
+  gravityPulseTimer?: number;
+  gravityPulseActive?: number;
+  rapidFireTimer?: number;
+  orbitalWarning?: number;
+  orbitalFiring?: number;
+  orbitalTargetX?: number;
+  orbitalTargetY?: number;
+  stockTickerWarning?: number;
+  stockTickerFiring?: number;
+  stockTickerY?: number[];
+  spiralTimer?: number;
+  droneSpawnTimer?: number;
 }
 
 export interface Collectible {

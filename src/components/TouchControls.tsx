@@ -7,6 +7,7 @@ interface TouchControlsProps {
   onHyperspace: () => void;
   empCount: number;
   hyperspaceReady: boolean;
+  isPaused: boolean;
   onThrustStart?: () => void;
   onThrustEnd?: () => void;
   onReverseStart?: () => void;
@@ -23,6 +24,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   onHyperspace,
   empCount,
   hyperspaceReady,
+  isPaused,
 }) => {
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   const [activeTouchId, setActiveTouchId] = useState<number | null>(null);
@@ -31,6 +33,17 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   const fireIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const RADIUS = 50; // max joystick displacement in px
+  const DEADZONE_RADIUS = 12; // 12px deadzone radius (~24% of RADIUS) to filter tiny accidental touches
+
+  const mouseListenersRef = useRef<{ move: (e: MouseEvent) => void; up: () => void } | null>(null);
+
+  const cleanupMouseListeners = useCallback(() => {
+    if (mouseListenersRef.current) {
+      window.removeEventListener('mousemove', mouseListenersRef.current.move);
+      window.removeEventListener('mouseup', mouseListenersRef.current.up);
+      mouseListenersRef.current = null;
+    }
+  }, []);
 
   const dispatchJoystick = useCallback((active: boolean, angle: number, distance: number) => {
     window.dispatchEvent(
@@ -56,10 +69,17 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     const knobY = Math.sin(angle) * clampedDist;
 
     setKnobPos({ x: knobX, y: knobY });
-    setIsJoystickActive(true);
 
-    const normDist = clampedDist / RADIUS;
-    dispatchJoystick(true, angle, normDist);
+    if (clampedDist < DEADZONE_RADIUS) {
+      // Inside deadzone: visual feedback on knob, but zero movement dispatched to ship
+      setIsJoystickActive(false);
+      dispatchJoystick(false, angle, 0);
+    } else {
+      setIsJoystickActive(true);
+      // Rescale distance smoothly from 0.0 to 1.0 outside deadzone
+      const normDist = (clampedDist - DEADZONE_RADIUS) / (RADIUS - DEADZONE_RADIUS);
+      dispatchJoystick(true, angle, normDist);
+    }
   }, [dispatchJoystick]);
 
   const handlePointerUp = useCallback(() => {
@@ -67,10 +87,12 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     setKnobPos({ x: 0, y: 0 });
     setIsJoystickActive(false);
     dispatchJoystick(false, 0, 0);
-  }, [dispatchJoystick]);
+    cleanupMouseListeners();
+  }, [dispatchJoystick, cleanupMouseListeners]);
 
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
+    if (isPaused) return;
     if (e.changedTouches.length > 0) {
       const touch = e.changedTouches[0];
       setActiveTouchId(touch.identifier);
@@ -80,6 +102,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
     e.preventDefault();
+    if (isPaused) return;
     if (activeTouchId !== null) {
       for (let i = 0; i < e.touches.length; i++) {
         if (e.touches[i].identifier === activeTouchId) {
@@ -91,6 +114,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   };
 
   const startContinuousFire = () => {
+    if (isPaused) return;
     onFire();
     if (fireIntervalRef.current) clearInterval(fireIntervalRef.current);
     fireIntervalRef.current = setInterval(() => {
@@ -110,8 +134,23 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   useEffect(() => {
     return () => {
       if (fireIntervalRef.current) clearInterval(fireIntervalRef.current);
+      cleanupMouseListeners();
     };
-  }, []);
+  }, [cleanupMouseListeners]);
+  useEffect(() => {
+    if (isPaused) {
+      if (fireIntervalRef.current) {
+        clearInterval(fireIntervalRef.current);
+        fireIntervalRef.current = null;
+      }
+      setActiveTouchId(null);
+      setKnobPos({ x: 0, y: 0 });
+      setIsJoystickActive(false);
+      dispatchJoystick(false, 0, 0);
+      cleanupMouseListeners();
+    }
+  }, [isPaused, dispatchJoystick, cleanupMouseListeners]);
+
 
   return (
     <div className="fixed inset-0 pointer-events-none z-40 select-none overflow-hidden flex justify-between items-end p-4 sm:p-8">
@@ -125,12 +164,13 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           onTouchCancel={handlePointerUp}
           onMouseDown={(e) => {
             e.preventDefault();
+            if (isPaused) return;
             const moveHandler = (me: MouseEvent) => handlePointerMove(me.clientX, me.clientY);
             const upHandler = () => {
               handlePointerUp();
-              window.removeEventListener('mousemove', moveHandler);
-              window.removeEventListener('mouseup', upHandler);
             };
+            cleanupMouseListeners();
+            mouseListenersRef.current = { move: moveHandler, up: upHandler };
             window.addEventListener('mousemove', moveHandler);
             window.addEventListener('mouseup', upHandler);
             handlePointerMove(e.clientX, e.clientY);
@@ -173,9 +213,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         <div className="flex items-center gap-3">
           {/* EMP Bomb Button */}
           <button
-            onTouchStart={(e) => { e.preventDefault(); onEMP(); }}
-            onClick={onEMP}
-            disabled={empCount <= 0}
+            onTouchStart={(e) => { e.preventDefault(); if (!isPaused) onEMP(); }}
+            onClick={() => { if (!isPaused) onEMP(); }}
+            disabled={empCount <= 0 || isPaused}
             className={`flex flex-col items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl border transition-all active:scale-95 shadow-lg backdrop-blur-md ${
               empCount > 0
                 ? 'bg-[#0D1117]/90 border-[#D29922] text-[#D29922] shadow-[0_0_12px_rgba(210,153,34,0.3)]'
@@ -189,9 +229,9 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
 
           {/* Hyperspace Button */}
           <button
-            onTouchStart={(e) => { e.preventDefault(); onHyperspace(); }}
-            onClick={onHyperspace}
-            disabled={!hyperspaceReady}
+            onTouchStart={(e) => { e.preventDefault(); if (!isPaused) onHyperspace(); }}
+            onClick={() => { if (!isPaused) onHyperspace(); }}
+            disabled={!hyperspaceReady || isPaused}
             className={`flex flex-col items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl border transition-all active:scale-95 shadow-lg backdrop-blur-md ${
               hyperspaceReady
                 ? 'bg-[#0D1117]/90 border-[#58A6FF] text-[#58A6FF] shadow-[0_0_12px_rgba(88,166,255,0.3)]'
@@ -212,6 +252,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           onMouseDown={(e) => { e.preventDefault(); startContinuousFire(); }}
           onMouseUp={stopContinuousFire}
           onMouseLeave={stopContinuousFire}
+          disabled={isPaused}
           className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-[#F85149]/50 to-[#b91c1c]/80 active:from-[#F85149] active:to-[#ef4444] border-2 border-[#ff7b72] rounded-full flex flex-col items-center justify-center text-white backdrop-blur-md shadow-[0_0_25px_rgba(248,81,73,0.4)] active:scale-95 transition-transform"
           aria-label="Fire Weapon"
         >

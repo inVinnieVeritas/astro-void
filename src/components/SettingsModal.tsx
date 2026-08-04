@@ -19,7 +19,6 @@ interface SettingsModalProps {
   onToggleCrtFilter: () => void;
   screenShake: boolean;
   onToggleScreenShake: () => void;
-  onRestartCurrentGame: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -38,8 +37,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   crtFilter,
   onToggleCrtFilter,
   screenShake,
-  onToggleScreenShake,
-  onRestartCurrentGame
+  onToggleScreenShake
 }) => {
   if (!isOpen) return null;
 
@@ -68,14 +66,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="grid grid-cols-3 gap-2">
               {[
                 { id: 'classic', label: 'Classic', desc: 'Standard Lives & Waves' },
-                { id: 'survival', label: 'Survival', desc: 'Continuous Swarm' },
+                { id: 'survival', label: 'Survival', desc: '1 Ship • No Extra Lives' },
                 { id: 'zen', label: 'Zen', desc: 'Invincible Practice' }
               ].map((m) => (
                 <button
                   key={m.id}
                   onClick={() => {
                     onChangeGameMode(m.id as GameMode);
-                    onRestartCurrentGame();
                   }}
                   className={`p-2.5 rounded-lg border text-left transition-all ${
                     gameMode === m.id

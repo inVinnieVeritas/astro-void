@@ -22,6 +22,15 @@ import { GameMode, ControlScheme } from '../types';
 import { CodexModal } from './CodexModal';
 import { Maximize, Minimize } from 'lucide-react';
 
+const MODE_SUMMARIES: Record<GameMode, string> = {
+  classic: 'STANDARD ARCADE',
+  survival: 'ONE-LIFE ENDURANCE',
+  zen: 'INVINCIBLE PRACTICE',
+  boss_rush: 'WAVE 5 DREADNOUGHT',
+  wave_10_boss: 'WAVE 10 CORE SEVERANCE',
+  wave_15_boss: 'WAVE 15 GRID ARCHITECT',
+};
+
 interface StartScreenProps {
   highScore: number;
   gameMode: GameMode;
@@ -101,7 +110,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               SELECT MISSION MODE
             </span>
             <span className="text-[11px] font-mono text-[#58A6FF]/80">
-              {gameMode === 'classic' ? 'STANDARD ARCADE' : gameMode === 'survival' ? 'SHIELDED ENDLESS' : gameMode === 'zen' ? 'INVINCIBLE PRACTICE' : gameMode === 'boss_rush' ? 'WAVE 5 BOSS BATTLE' : 'WAVE 10 BOSS BATTLE'}
+              {MODE_SUMMARIES[gameMode]}
             </span>
           </div>
           
@@ -150,7 +159,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
                 gameMode === 'survival' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
-                Hull Shield Power • Endless Swarm Assault
+                1 Ship • No Extra Lives • Endless Wave Progression
               </div>
             </button>
 
@@ -226,27 +235,27 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               </div>
             </button>
 
-            {/* Wave 15 Boss */}
+            {/* Wave 15 Boss - THE GRID ARCHITECT */}
             <button
               type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('wave_15_boss')}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
                 gameMode === 'wave_15_boss'
-                  ? 'bg-[#00ffff]/20 border-[#00ffff] text-[#E6EDF3] shadow-[0_0_20px_rgba(0,255,255,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#00ffff]/50'
+                  ? 'bg-gradient-to-r from-[#00ffff]/20 to-[#ff00ff]/20 border-[#00ffff] text-[#E6EDF3] shadow-[0_0_20px_rgba(0,255,255,0.3)] scale-[1.02] opacity-100 ring-1 ring-[#00ffff]/50'
                   : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
               }`}
             >
               <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
                 gameMode === 'wave_15_boss' ? 'text-[#00ffff]' : 'text-[#6E7681]'
               }`}>
-                TRIAD PROTOCOL
-                {gameMode === 'wave_15_boss' && <div className="w-2.5 h-2.5 rounded-full bg-[#00ffff] shadow-[0_0_10px_#00ffff]" />}
+                THE GRID ARCHITECT
+                {gameMode === 'wave_15_boss' && <div className="w-2.5 h-2.5 rounded-full bg-[#ff00ff] shadow-[0_0_10px_#ff00ff]" />}
               </div>
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
                 gameMode === 'wave_15_boss' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
-                Start at Wave 15 vs Triad Cores
+                START AT WAVE 15 • CONFRONT THE SYSTEM CONTROLLER
               </div>
             </button>
           </div>
