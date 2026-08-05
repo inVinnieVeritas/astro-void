@@ -15,7 +15,8 @@ import {
   BinaryPlasmaCore,
   PlasmaCoreNode,
   GameMode,
-  ControlScheme
+  ControlScheme,
+  RunStatsSnapshot
 } from '../types';
 import { soundEngine } from '../audio/soundEngine';
 
@@ -191,6 +192,7 @@ interface AsteroidsCanvasProps {
   initialWave?: number;
   initialLives: number;
   controlScheme: ControlScheme;
+  consumeRunStatsRef: React.MutableRefObject<(() => RunStatsSnapshot | null) | null>;
   isPaused: boolean;
   crtFilter: boolean;
   screenShakeEnabled: boolean;
@@ -227,6 +229,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   initialWave,
   initialLives,
   controlScheme,
+  consumeRunStatsRef,
   isPaused,
   crtFilter,
   screenShakeEnabled,
@@ -244,6 +247,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   onUnlockAchievement
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const rewardsEnabled = gameMode === 'classic' || gameMode === 'survival';
   const [showContinueOffer, setShowContinueOffer] = useState(false);
   const dreadnoughtHitFeedbackNextMsRef = useRef(0);
   const dreadnoughtHitTextNextMsRef = useRef(0);
@@ -341,6 +345,41 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     consecutiveHits: 0,
     gridArchitectContinueUsed: false
   });
+
+  useEffect(() => {
+    const consumeRunStats = (): RunStatsSnapshot | null => {
+      const state = gameStateRef.current;
+
+      if (!state.gameRunning) {
+        return null;
+      }
+
+      const snapshot: RunStatsSnapshot = {
+        isActive: true,
+        asteroidsDestroyed: state.asteroidsDestroyed,
+        ufosDestroyed: state.ufosDestroyed,
+        shotsFired: state.shotsFired,
+        shotsHit: state.shotsHit,
+        empUsed: state.empUsed,
+        score: state.score,
+        wave: state.wave,
+        maxCombo: state.maxCombo,
+        bossDamageDealt: state.bossDamageDealt
+      };
+
+      state.gameRunning = false;
+
+      return snapshot;
+    };
+
+    consumeRunStatsRef.current = consumeRunStats;
+
+    return () => {
+      if (consumeRunStatsRef.current === consumeRunStats) {
+        consumeRunStatsRef.current = null;
+      }
+    };
+  }, [consumeRunStatsRef]);
 
   // Power-up duration timers (in frames)
   const powerupTimersRef = useRef({
@@ -911,7 +950,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       } else if (state.comboCount === 10) {
         soundEngine.playSound('golden');
         if (ship && ship.alive) addFloatingText(ship.x, ship.y - 45, '⚡ 3x SUPER COMBO!', '#ffd700', 24);
-        callbacksRef.current.onUnlockAchievement('sharpshooter');
       } else if (state.comboCount === 15) {
         soundEngine.playSound('golden');
         if (ship && ship.alive) addFloatingText(ship.x, ship.y - 45, '💥 4x MEGA COMBO!', '#ff00ff', 26);
@@ -1845,7 +1883,21 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   // Destroy UFO Helper
   const destroyUfo = useCallback((ufo: UFO, points: number) => {
     addScore(points);
-    gameStateRef.current.ufosDestroyed++;
+
+    const countsAsCombatUfo =
+      !ufo.isBoss &&
+      !ufo.isMinion &&
+      (
+        ufo.type === 'scout' ||
+        ufo.type === 'mothership' ||
+        ufo.type === 'hunter' ||
+        ufo.type === 'swarmer' ||
+        ufo.type === 'dreadnought'
+      );
+
+    if (countsAsCombatUfo) {
+      gameStateRef.current.ufosDestroyed++;
+    }
 
     const ship = shipRef.current;
     if (ship && ship.alive && !ufo.isBoss) {
@@ -1859,6 +1911,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
     const isBossDeath = !!ufo.isBoss;
 
+    if (rewardsEnabled && ufo.isBoss && ufo.type === 'dreadnought') {
+      callbacksRef.current.onUnlockAchievement('boss_slayer');
+    }
+    if (rewardsEnabled && ufo.type === 'hunter') {
+      callbacksRef.current.onUnlockAchievement('ufo_hunter');
+    }
+
     if (!isBossDeath) {
       createBigExplosion(ufo.x, ufo.y);
     }
@@ -1869,8 +1928,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       const shockwaveRadius = ufo.type === 'technoking' ? 450 : 320;
       addShockwave(ufo.x, ufo.y, shockwaveRadius, color);
       
-      callbacksRef.current.onUnlockAchievement('boss_slayer');
-
       // Drop MULTIPLE magnetic bonus crystals around boss coordinates
       const drops: Collectible['type'][] = ['golden', 'shield', 'triple', 'emp', 'laser', 'drone', 'magnet', 'repulsor', 'nuke'];
       drops.forEach((dropType, idx) => {
@@ -1918,7 +1975,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
         );
       }
 
-      callbacksRef.current.onUnlockAchievement('boss_slayer');
     } else {
       if (ufo.isMinion) {
         const minionDrops: Collectible['type'][] = ['shield', 'triple', 'laser', 'emp', 'timewarp', 'repulsor', 'drone'];
@@ -1969,8 +2025,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       soundEngine.stopUfoAlarm();
       soundEngine.setMusicIntensity(1.0);
     }
-    callbacksRef.current.onUnlockAchievement('ufo_hunter');
-  }, [addScore, createBigExplosion, spawnCollectible, addFloatingText]);
+
+  }, [addScore, createBigExplosion, spawnCollectible, addFloatingText, rewardsEnabled]);
 
   // Destroy Asteroid Helper (for shots and shield ramming)
   const destroyAsteroid = useCallback((index: number, isRam: boolean = false) => {
@@ -2108,7 +2164,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       nearby.forEach((other) => {
         createSmallExplosion(other.x, other.y, '#ff4400');
         addScore(30);
+        
+        const wasFirstAsteroidDestroyed = state.asteroidsDestroyed === 0;
         state.asteroidsDestroyed++;
+        if (rewardsEnabled && wasFirstAsteroidDestroyed) {
+          callbacksRef.current.onUnlockAchievement('first_blood');
+        }
+        
         const idx = asteroidsRef.current.indexOf(other);
         if (idx !== -1) {
           if (other.radius > 20) {
@@ -2212,7 +2274,11 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     else if (a.radius > 25) addScore(50);
     else addScore(100);
 
+    const wasFirstAsteroidDestroyed = state.asteroidsDestroyed === 0;
     state.asteroidsDestroyed++;
+    if (rewardsEnabled && wasFirstAsteroidDestroyed) {
+      callbacksRef.current.onUnlockAchievement('first_blood');
+    }
 
     if (isRam) {
       addFloatingText(a.x, a.y - 12, 'SHIELD RAM!', '#00ffcc', 15);
@@ -2227,7 +2293,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     }
 
     asteroidsRef.current.splice(index, 1);
-  }, [createSmallExplosion, spawnCollectible, addFloatingText, createAsteroid, addShockwave]);
+  }, [createSmallExplosion, spawnCollectible, addFloatingText, createAsteroid, addShockwave, rewardsEnabled]);
 
   // Trigger EMP Shockwave
   const triggerEmp = useCallback(() => {
@@ -2302,7 +2368,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       if (dist < 450) {
         createSmallExplosion(a.x, a.y, '#00ffff');
         gameStateRef.current.score += 50;
+        
+        const wasFirstAsteroidDestroyed = gameStateRef.current.asteroidsDestroyed === 0;
         gameStateRef.current.asteroidsDestroyed++;
+        if (rewardsEnabled && wasFirstAsteroidDestroyed) {
+          callbacksRef.current.onUnlockAchievement('first_blood');
+        }
+        
         if (a.radius > 22) {
           remaining.push(createAsteroid(a.x, a.y, a.radius * 0.5));
         }
@@ -2313,8 +2385,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     asteroidsRef.current = remaining;
 
     callbacksRef.current.onScoreUpdate(gameStateRef.current.score);
-    callbacksRef.current.onUnlockAchievement('emp_master');
-  }, [screenShakeEnabled]);
+    if (rewardsEnabled) {
+      callbacksRef.current.onUnlockAchievement('emp_master');
+    }
+  }, [screenShakeEnabled, rewardsEnabled]);
 
   // Hyperspace Emergency Jump
   const triggerHyperspace = useCallback(() => {
@@ -3324,8 +3398,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               callbacksRef.current.onWaveUpdate(state.wave);
               spawnWave(state.wave);
 
-              if (state.wave >= 5) callbacksRef.current.onUnlockAchievement('wave_5');
-              if (state.wave >= 10) callbacksRef.current.onUnlockAchievement('wave_10');
+              if (rewardsEnabled) {
+                if (state.wave >= 5) callbacksRef.current.onUnlockAchievement('wave_5');
+                if (state.wave >= 10) callbacksRef.current.onUnlockAchievement('wave_10');
+              }
             }
           }
         }

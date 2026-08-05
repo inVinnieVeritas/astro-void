@@ -256,6 +256,19 @@ export interface BinaryPlasmaCore {
   core2: PlasmaCoreNode | null;
 }
 
+export interface RunStatsSnapshot {
+  isActive: boolean;
+  asteroidsDestroyed: number;
+  ufosDestroyed: number;
+  shotsFired: number;
+  shotsHit: number;
+  empUsed: number;
+  score: number;
+  wave: number;
+  maxCombo: number;
+  bossDamageDealt: number;
+}
+
 export interface LifetimeStats {
   gamesPlayed: number;
   asteroidsDestroyed: number;

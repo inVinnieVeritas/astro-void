@@ -183,7 +183,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
                 gameMode === 'zen' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
-                Invincible Flight • Casual Stress-Free Practice
+                Invincible Flight • Practice Mode • Rewards Disabled
               </div>
             </button>
 
@@ -207,7 +207,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
                 gameMode === 'boss_rush' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
-                Start Immediately at Wave 5 vs Dreadnought Warship
+                Start at Wave 5 vs Dreadnought • Practice • Rewards Disabled
               </div>
             </button>
             
@@ -231,7 +231,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
                 gameMode === 'wave_10_boss' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
-                Start at Wave 10 vs AI Mainframe Core
+                Start at Wave 10 vs Core Severance • Practice • Rewards Disabled
               </div>
             </button>
 
@@ -255,7 +255,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
                 gameMode === 'wave_15_boss' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
-                START AT WAVE 15 • CONFRONT THE SYSTEM CONTROLLER
+                Start at Wave 15 vs Grid Architect • Practice • Rewards Disabled
               </div>
             </button>
           </div>

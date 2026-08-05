@@ -67,7 +67,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {[
                 { id: 'classic', label: 'Classic', desc: 'Standard Lives & Waves' },
                 { id: 'survival', label: 'Survival', desc: '1 Ship • No Extra Lives' },
-                { id: 'zen', label: 'Zen', desc: 'Invincible Practice' }
+                { id: 'zen', label: 'Zen', desc: 'Invincible Practice • Rewards Disabled' }
               ].map((m) => (
                 <button
                   key={m.id}

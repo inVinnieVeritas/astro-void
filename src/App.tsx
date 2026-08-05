@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AsteroidsCanvas } from './components/AsteroidsCanvas';
 import { HUD } from './components/HUD';
 import { TouchControls } from './components/TouchControls';
@@ -9,7 +9,7 @@ import { ChallengesModal } from './components/ChallengesModal';
 import { GameOverModal } from './components/GameOverModal';
 import { StartScreen } from './components/StartScreen';
 import { soundEngine } from './audio/soundEngine';
-import { GameMode, ControlScheme, HighScoreRecord, LifetimeStats, Achievement } from './types';
+import { GameMode, ControlScheme, HighScoreRecord, LifetimeStats, Achievement, RunStatsSnapshot } from './types';
 
 export default function App() {
   // Game Configuration State
@@ -99,6 +99,8 @@ export default function App() {
     }
   }, []);
 
+  const consumeRunStatsRef = useRef<(() => RunStatsSnapshot | null) | null>(null);
+
   // Modal Dialog Visibility
   const [showSettings, setShowSettings] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -108,7 +110,19 @@ export default function App() {
   // Challenges State & Persistence
   const [completedChallenges, setCompletedChallenges] = useState<string[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem('asteroids_completed_challenges') || '[]');
+      const parsed = JSON.parse(localStorage.getItem('asteroids_completed_challenges') || '[]');
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return Array.from(
+        new Set(
+          parsed.filter(
+            (id): id is string =>
+              typeof id === 'string' &&
+              id.length > 0
+          )
+        )
+      );
     } catch {
       return [];
     }
@@ -132,7 +146,7 @@ export default function App() {
     {
       id: 'chain_reaction',
       title: 'Chain Reaction',
-      description: 'Achieve a 15x or higher combo streak.',
+      description: 'Achieve a 15-hit or higher combo streak.',
       rewardText: 'Combo Master',
       completed: completedChallenges.includes('chain_reaction')
     },
@@ -146,14 +160,14 @@ export default function App() {
     {
       id: 'ufo_hunter',
       title: 'UFO Hunter',
-      description: 'Destroy 3 or more alien UFOs in a single run.',
+      description: 'Destroy 3 roaming combat UFOs in a single run.',
       rewardText: 'Alien Bane',
       completed: completedChallenges.includes('ufo_hunter')
     },
     {
       id: 'boss_veteran',
-      title: 'Dreadnought Breaker',
-      description: 'Deal 2,000+ total damage to boss / mothership vessels.',
+      title: 'Boss Breaker',
+      description: 'Deal 2,000+ damage to major bosses in a single run.',
       rewardText: 'Core Destroyer',
       completed: completedChallenges.includes('boss_veteran')
     },
@@ -256,7 +270,7 @@ export default function App() {
     { id: 'emp_master', title: 'EMP Master', description: 'Trigger an EMP shockwave blast', icon: 'Zap', unlocked: false, progress: 0, maxProgress: 1 },
     { id: 'ufo_hunter', title: 'UFO Hunter', description: 'Down an elite UFO interceptor', icon: 'Skull', unlocked: false, progress: 0, maxProgress: 1 },
     { id: 'boss_slayer', title: 'Boss Slayer', description: 'Destroy the Dreadnought Warship', icon: 'Crosshair', unlocked: false, progress: 0, maxProgress: 1 },
-    { id: 'sharpshooter', title: 'Sharpshooter', description: 'Achieve a 10x multiplier combo', icon: 'Star', unlocked: false, progress: 0, maxProgress: 1 },
+    { id: 'sharpshooter', title: 'Sharpshooter', description: 'Finish a run with 75% or higher accuracy', icon: 'Star', unlocked: false, progress: 0, maxProgress: 1 },
     { id: 'wave_5', title: 'Veteran Pilot', description: 'Survive to Wave 5', icon: 'Award', unlocked: false, progress: 0, maxProgress: 1 },
     { id: 'wave_10', title: 'Space Legend', description: 'Reach Wave 10', icon: 'Trophy', unlocked: false, progress: 0, maxProgress: 1 }
   ]);
@@ -309,7 +323,73 @@ const getInitialLivesForMode = (mode: GameMode): number => {
 
 
 
+  const handleStatsRecord = useCallback(
+    (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number, maxCombo: number, bossDamageDealt: number) => {
+      setLifetimeStats((prev) => {
+        const updated: LifetimeStats = {
+          gamesPlayed: prev.gamesPlayed + 1,
+          asteroidsDestroyed: prev.asteroidsDestroyed + asteroids,
+          ufosDestroyed: prev.ufosDestroyed + ufos,
+          shotsFired: prev.shotsFired + shotsFired,
+          shotsHit: prev.shotsHit + shotsHit,
+          highestScore: Math.max(prev.highestScore, finalScore),
+          highestWave: Math.max(prev.highestWave, finalWave),
+          bombsUsed: prev.bombsUsed + empUsed
+        };
+        try {
+          localStorage.setItem('asteroids_lifetime_stats', JSON.stringify(updated));
+        } catch (e) {}
+        return updated;
+      });
+
+      const isProgressionMode = gameMode === 'classic' || gameMode === 'survival';
+
+      // Check Challenges
+      const accuracy = shotsFired > 0 ? Math.min(100, Math.max(0, Math.round((shotsHit / shotsFired) * 100))) : 0;
+      const newlyCompleted: string[] = [];
+      const check = (id: string, condition: boolean) => {
+        if (condition && !completedChallenges.includes(id) && !newlyCompleted.includes(id)) {
+          newlyCompleted.push(id);
+        }
+      };
+
+      check('wave_10', gameMode === 'classic' && finalWave >= 10);
+      check('purist', gameMode === 'classic' && finalWave >= 10 && empUsed === 0);
+      check('chain_reaction', isProgressionMode && maxCombo >= 15);
+      check('marksman', isProgressionMode && finalWave >= 8 && shotsFired >= 50 && accuracy >= 70);
+      check('ufo_hunter', isProgressionMode && ufos >= 3);
+      check('boss_veteran', isProgressionMode && bossDamageDealt >= 2000);
+      check('survival_master', gameMode === 'survival' && finalWave >= 8);
+
+      if (newlyCompleted.length > 0) {
+        const updated = Array.from(new Set([...completedChallenges, ...newlyCompleted]));
+        setCompletedChallenges(updated);
+        try {
+          localStorage.setItem('asteroids_completed_challenges', JSON.stringify(updated));
+        } catch (e) {}
+      }
+    },
+    [gameMode, completedChallenges]
+  );
+
   const restartGameForMode = useCallback((mode: GameMode) => {
+    if (gameStarted) {
+      const abandonedRun = consumeRunStatsRef.current?.() ?? null;
+      if (abandonedRun?.isActive) {
+        handleStatsRecord(
+          abandonedRun.asteroidsDestroyed,
+          abandonedRun.ufosDestroyed,
+          abandonedRun.shotsFired,
+          abandonedRun.shotsHit,
+          abandonedRun.empUsed,
+          abandonedRun.score,
+          abandonedRun.wave,
+          abandonedRun.maxCombo,
+          abandonedRun.bossDamageDealt
+        );
+      }
+    }
+
     setGameMode(mode);
     setScore(0);
     setWave(getInitialWaveForMode(mode));
@@ -325,7 +405,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
     setGameKey((prev) => prev + 1);
     soundEngine.init();
     soundEngine.startMusic();
-  }, []);
+  }, [gameStarted, handleStatsRecord]);
 
   const handleSettingsModeChange = useCallback(
     (mode: GameMode) => {
@@ -390,61 +470,15 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         return updated;
       });
 
-      if (accuracy >= 75) {
+      const isProgressionMode = gameMode === 'classic' || gameMode === 'survival';
+
+      if (isProgressionMode && accuracy >= 75) {
         unlockAchievement('sharpshooter');
       }
     },
     [highScore, gameMode, unlockAchievement, pilotName]
   );
 
-  const handleStatsRecord = useCallback(
-    (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number, maxCombo: number, bossDamageDealt: number) => {
-      setLifetimeStats((prev) => {
-        const updated: LifetimeStats = {
-          gamesPlayed: prev.gamesPlayed + 1,
-          asteroidsDestroyed: prev.asteroidsDestroyed + asteroids,
-          ufosDestroyed: prev.ufosDestroyed + ufos,
-          shotsFired: prev.shotsFired + shotsFired,
-          shotsHit: prev.shotsHit + shotsHit,
-          highestScore: Math.max(prev.highestScore, finalScore),
-          highestWave: Math.max(prev.highestWave, finalWave),
-          bombsUsed: prev.bombsUsed + empUsed
-        };
-        try {
-          localStorage.setItem('asteroids_lifetime_stats', JSON.stringify(updated));
-        } catch (e) {}
-        return updated;
-      });
-
-      if (asteroids > 0) unlockAchievement('first_blood');
-
-      // Check Challenges
-      const accuracy = shotsFired > 0 ? Math.min(100, Math.max(0, Math.round((shotsHit / shotsFired) * 100))) : 0;
-      const newlyCompleted: string[] = [];
-      const check = (id: string, condition: boolean) => {
-        if (condition && !completedChallenges.includes(id) && !newlyCompleted.includes(id)) {
-          newlyCompleted.push(id);
-        }
-      };
-
-      check('wave_10', gameMode === 'classic' && finalWave >= 10);
-      check('purist', gameMode === 'classic' && finalWave >= 10 && empUsed === 0);
-      check('chain_reaction', maxCombo >= 15);
-      check('marksman', finalWave >= 8 && shotsFired >= 50 && accuracy >= 70);
-      check('ufo_hunter', ufos >= 3);
-      check('boss_veteran', bossDamageDealt >= 2000);
-      check('survival_master', gameMode === 'survival' && finalWave >= 8);
-
-      if (newlyCompleted.length > 0) {
-        const updated = [...completedChallenges, ...newlyCompleted];
-        setCompletedChallenges(updated);
-        try {
-          localStorage.setItem('asteroids_completed_challenges', JSON.stringify(updated));
-        } catch (e) {}
-      }
-    },
-    [unlockAchievement, gameMode, completedChallenges]
-  );
 
   // Mute Toggle
   const handleToggleMute = useCallback(() => {
@@ -477,6 +511,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
     <div className="relative w-screen h-screen overflow-hidden bg-[#0A0C10] text-[#E6EDF3] font-sans select-none">
       {/* Main Asteroids Canvas Engine */}
       <AsteroidsCanvas
+        consumeRunStatsRef={consumeRunStatsRef}
         isTouchDevice={isTouchDevice}
         key={gameKey}
         gameMode={gameMode}
