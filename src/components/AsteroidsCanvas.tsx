@@ -3091,7 +3091,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           }
 
           const joystick = state.touchJoystick;
-          if (isTouchDevice && joystick && joystick.active && joystick.distance > 0) {
+          const hasActiveTouchJoystick = Boolean(isTouchDevice) && joystick.active && joystick.distance > 0;
+
+          if (isTouchDevice) {
+            state.touchThrust = hasActiveTouchJoystick && joystick.distance > 0.25;
+          }
+
+          if (hasActiveTouchJoystick) {
             // Virtual Joystick Steering - smooth & controlled rotation
             const targetAngle = joystick.angle;
             let diff = targetAngle - ship.angle;
@@ -3107,13 +3113,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               ship.angle = targetAngle;
             } else {
               ship.angle += Math.sign(diff) * turnStep;
-            }
-
-            // Virtual Joystick Thrusting - requires intentional push beyond deadzone
-            if (joystick.distance > 0.25) {
-              state.touchThrust = true;
-            } else {
-              state.touchThrust = false;
             }
           } else if (controlScheme === 'classic' || isTouchDevice) {
             // Turning - smoothed rotation speed for better maneuvering
