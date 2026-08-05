@@ -75,7 +75,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     }
   }, [dispatchJoystick]);
 
-  const handlePointerUp = useCallback(() => {
+  const resetJoystick = useCallback(() => {
     activePointerIdRef.current = null;
     setKnobPos({ x: 0, y: 0 });
     setIsJoystickActive(false);
@@ -99,13 +99,13 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
-      handlePointerUp();
+      resetJoystick();
     }
   };
 
   const onLostPointerCapture = (e: React.PointerEvent<HTMLDivElement>) => {
     if (activePointerIdRef.current === e.pointerId) {
-      handlePointerUp();
+      resetJoystick();
     }
   };
 
@@ -139,12 +139,47 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         clearInterval(fireIntervalRef.current);
         fireIntervalRef.current = null;
       }
-      activePointerIdRef.current = null;
-      setKnobPos({ x: 0, y: 0 });
-      setIsJoystickActive(false);
-      dispatchJoystick(false, 0, 0);
+      resetJoystick();
     }
-  }, [isPaused, dispatchJoystick]);
+  }, [isPaused, resetJoystick]);
+
+  useEffect(() => {
+    const handleGlobalPointerUpCancel = (e: PointerEvent) => {
+      if (activePointerIdRef.current === e.pointerId) {
+        resetJoystick();
+      }
+    };
+
+    const handleGlobalBlurHide = () => {
+      resetJoystick();
+    };
+    
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        resetJoystick();
+      }
+    };
+
+    const handleCustomReset = () => {
+      resetJoystick();
+    };
+
+    window.addEventListener('pointerup', handleGlobalPointerUpCancel, true);
+    window.addEventListener('pointercancel', handleGlobalPointerUpCancel, true);
+    window.addEventListener('blur', handleGlobalBlurHide);
+    window.addEventListener('pagehide', handleGlobalBlurHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('asteroids:reset-joystick', handleCustomReset);
+
+    return () => {
+      window.removeEventListener('pointerup', handleGlobalPointerUpCancel, true);
+      window.removeEventListener('pointercancel', handleGlobalPointerUpCancel, true);
+      window.removeEventListener('blur', handleGlobalBlurHide);
+      window.removeEventListener('pagehide', handleGlobalBlurHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('asteroids:reset-joystick', handleCustomReset);
+    };
+  }, [resetJoystick]);
 
   return (
     <div className="fixed inset-0 pointer-events-none z-40 select-none overflow-hidden flex justify-between items-end p-4 sm:p-8">

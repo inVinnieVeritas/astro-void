@@ -1744,7 +1744,18 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     );
   };
 
+  const clearJoystickInput = () => {
+    gameStateRef.current.touchJoystick = { active: false, angle: 0, distance: 0 };
+    gameStateRef.current.touchThrust = false;
+    gameStateRef.current.touchReverse = false;
+    gameStateRef.current.touchLeft = false;
+    gameStateRef.current.touchRight = false;
+    soundEngine.stopThrustSound();
+    window.dispatchEvent(new CustomEvent('asteroids:reset-joystick'));
+  };
+
   const centerShip = () => {
+    clearJoystickInput();
     let w = canvasRef.current?.width || window.innerWidth;
     let h = canvasRef.current?.height || window.innerHeight;
     if (w < 400 && window.innerWidth > 0) w = window.innerWidth;
@@ -2694,6 +2705,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     gameStateRef.current.lives--;
     callbacksRef.current.onLivesUpdate(gameStateRef.current.lives);
 
+    clearJoystickInput();
     soundEngine.stopThrustSound();
     soundEngine.stopReverseSound();
     soundEngine.stopUfoAlarm();
@@ -2851,13 +2863,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     if (isPaused) {
       soundEngine.pauseAll();
       // Clear held movement states
+      clearJoystickInput();
       const state = gameStateRef.current;
       state.keys = {};
-      state.touchJoystick.active = false;
-      state.touchThrust = false;
-      state.touchReverse = false;
-      state.touchLeft = false;
-      state.touchRight = false;
       state.pointerId = null;
       soundEngine.stopThrustSound();
       soundEngine.stopReverseSound();
@@ -2897,6 +2905,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       let delta = now - lastSchedulerTimeRef.current;
       lastSchedulerTimeRef.current = now;
       delta = Math.min(delta, 100);
+
+      const TARGET_FRAME_MS = 1000 / 60;
+      const playerFrameScale = Math.min(2, Math.max(0.25, delta / TARGET_FRAME_MS));
 
       if (!isPaused && gameStateRef.current.gameRunning) {
         const dueEvents: ScheduledGameEvent[] = [];
@@ -3121,7 +3132,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 Math.max(0.30, absDiff / (Math.PI / 3))
               );
 
-              const turnStep = MOBILE_TARGET_MAX_TURN_RATE * turnFactor;
+              const turnStep = MOBILE_TARGET_MAX_TURN_RATE * turnFactor * playerFrameScale;
 
               if (absDiff <= Math.max(MOBILE_TARGET_SNAP_ANGLE, turnStep)) {
                 ship.angle = targetAngle;
@@ -3156,9 +3167,9 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               ship.rotation = 0;
             }
             if (!isTouchDevice) {
-              ship.angle += ship.rotation;
+              ship.angle += ship.rotation * playerFrameScale;
             } else if (!hasActiveTouchJoystick) {
-              ship.angle += ship.rotation;
+              ship.angle += ship.rotation * playerFrameScale;
             }
           } else if (controlScheme === 'mouse' && !isTouchDevice) {
             // Mouse Aiming
@@ -3178,8 +3189,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             if (ship.frozenTimer > 0) accel *= 0.4; // Thrusters slowed by 60% when frozen!
             if (isInsideNebula) accel *= 0.5; // Mobility Lock: 50% thrust acceleration reduction inside Ionizing Nebula!
 
-            ship.thrust.x += Math.cos(ship.angle) * accel;
-            ship.thrust.y += Math.sin(ship.angle) * accel;
+            ship.thrust.x += Math.cos(ship.angle) * accel * playerFrameScale;
+            ship.thrust.y += Math.sin(ship.angle) * accel * playerFrameScale;
             soundEngine.startThrustSound();
 
             // Thruster Embers & EMP Sparks inside Nebula
@@ -3201,14 +3212,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ship.reverse = true;
             let revAccel = ship.frozenTimer > 0 ? 0.04 : 0.11;
             if (isInsideNebula) revAccel *= 0.5; // 50% reverse accel reduction
-            ship.thrust.x -= Math.cos(ship.angle) * revAccel;
-            ship.thrust.y -= Math.sin(ship.angle) * revAccel;
+            ship.thrust.x -= Math.cos(ship.angle) * revAccel * playerFrameScale;
+            ship.thrust.y -= Math.sin(ship.angle) * revAccel * playerFrameScale;
             soundEngine.startReverseSound();
           } else {
             ship.thrusting = false;
             ship.reverse = false;
             // Mobile Arcade Drag: on touch devices, apply stronger deceleration (0.915) when stick is released
-            const drag = isTouchDevice ? 0.915 : 0.985;
+            const baseDrag = isTouchDevice ? 0.915 : 0.985;
+            const drag = Math.pow(baseDrag, playerFrameScale);
             ship.thrust.x *= drag;
             ship.thrust.y *= drag;
             soundEngine.stopThrustSound();
@@ -3226,8 +3238,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ship.thrust.y = (ship.thrust.y / currentSpeed) * maxSpeed;
           }
 
-          ship.x += ship.thrust.x;
-          ship.y += ship.thrust.y;
+          ship.x += ship.thrust.x * playerFrameScale;
+          ship.y += ship.thrust.y * playerFrameScale;
 
           // Screen Wrap
           if (ship.x < 0) ship.x = width;
@@ -9835,6 +9847,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                    gameStateRef.current.gridArchitectContinueUsed = true;
                    gameStateRef.current.lives = 3;
                    callbacksRef.current.onLivesUpdate(3);
+                   clearJoystickInput();
                    
                    if (shipRef.current) {
                      shipRef.current.alive = true;
