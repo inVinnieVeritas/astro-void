@@ -4217,7 +4217,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                 // Track only if above threshold
                 if (ufo.laserSweepTelegraph > lockThreshold && ship.alive) {
                   const targetAng = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
-                  const curAng = ufo.laserSweepAngle || targetAng;
+                  const curAng = ufo.laserSweepAngle ?? targetAng;
                   let diff = targetAng - curAng;
                   while (diff < -Math.PI) diff += Math.PI * 2;
                   while (diff > Math.PI) diff -= Math.PI * 2;
@@ -4231,13 +4231,13 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               } else if (ufo.laserSweepFiring > 0) {
                 ufo.laserSweepFiring -= timeFactor;
                 if (ship.alive) {
-                  const laserAngle = ufo.laserSweepAngle || (Math.PI / 2);
+                  const laserAngle = ufo.laserSweepAngle ?? (Math.PI / 2);
                   const dx = ship.x - ufo.x;
                   const dy = ship.y - ufo.y;
                   const proj = dx * Math.cos(laserAngle) + dy * Math.sin(laserAngle);
                   const distToBeam = Math.abs(dx * Math.sin(laserAngle) - dy * Math.cos(laserAngle));
                   if (distToBeam < 35 && proj > 0 && proj < 1600) {
-                    handlePlayerHit();
+                    handlePlayerHit({ lethal: true, bypassShield: true });
                   }
                 }
                 if (ufo.laserSweepFiring <= 0) {
@@ -4418,14 +4418,14 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
               // Attacks based on state
               if (ufo.bossState === 'laserFire' && ship.alive) {
-                 const laserAngle = ufo.laserTargetAngle || Math.PI / 2;
+                 const laserAngle = ufo.laserTargetAngle ?? Math.PI / 2;
                  const dx = ship.x - ufo.x;
                  const dy = ship.y - ufo.y;
                  const alongBeam = dx * Math.cos(laserAngle) + dy * Math.sin(laserAngle);
                  const distanceToBeam = Math.abs(dx * Math.sin(laserAngle) - dy * Math.cos(laserAngle));
                  
                  if (alongBeam >= 0 && alongBeam <= 2200 && distanceToBeam <= 12.5 + ship.radius) {
-                    handlePlayerHit();
+                    handlePlayerHit({ lethal: true, bypassShield: true });
                  }
 
                  if (Math.random() < (nodeCount === 0 ? 0.08 : 0.03) * timeFactor) {
@@ -6101,7 +6101,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
         // Draw Boss Grid Sweep Vector Beam Attack (Telegraph & Execution Phases)
         if (ufo.isBoss) {
-          const sweepAngle = ufo.laserTargetAngle || Math.PI / 2;
+          const sweepAngle = ufo.laserTargetAngle ?? Math.PI / 2;
           const beamDist = 2200;
 
           // 1. TELEGRAPH PHASE (Significantly extended & readable charge up):
@@ -6252,13 +6252,49 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           // Shield Node rendering: Hexagonal shield generator with rotating ring and glowing lens
           const rad = ufo.radius;
           const nodePulse = Math.sin(now * 0.005) * 0.5 + 0.5;
-          const nodeColor = '#A371F7';
-          const coreColor = '#00ffff';
+          const linkedCore = ufosRef.current.find(candidate => candidate.type === 'core_severance' && candidate.health > 0);
+          
+          let outerColor = `rgba(163, 113, 247, ${0.4 + nodePulse * 0.3})`;
+          let lensColor = '#00ffff';
+          let ringRotMult = 1;
+
+          if (linkedCore?.bossState === 'laserCharge') {
+             lensColor = '#ffffff';
+             outerColor = `rgba(255, 0, 85, ${0.5 + 0.5 * Math.sin(now * 0.03)})`;
+             ringRotMult = 1.8;
+          } else if (linkedCore?.bossState === 'laserFire') {
+             const fastPulse = Math.sin(now * 0.02);
+             lensColor = fastPulse > 0 ? '#ffffff' : '#ff0055';
+             outerColor = 'rgba(255, 0, 85, 0.8)';
+          }
+
+          const nodeHealthRatio = Math.max(0, Math.min(1, ufo.health / Math.max(1, ufo.maxHealth)));
+          let integrityColor = '#00ffff';
+          if (nodeHealthRatio <= 0.25) {
+             integrityColor = '#ff0055';
+          } else if (nodeHealthRatio < 0.5) {
+             integrityColor = '#ffbf00';
+          }
+
+          // Draw health background arc
+          ctx.save();
+          ctx.strokeStyle = 'rgba(20, 20, 40, 0.8)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 1.32, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Draw health foreground arc
+          ctx.strokeStyle = integrityColor;
+          ctx.beginPath();
+          ctx.arc(0, 0, rad * 1.32, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * nodeHealthRatio);
+          ctx.stroke();
+          ctx.restore();
 
           // Rotating Outer Tech Ring
           ctx.save();
-          ctx.rotate(now * 0.0015);
-          ctx.strokeStyle = `rgba(163, 113, 247, ${0.4 + nodePulse * 0.3})`;
+          ctx.rotate(now * 0.0015 * ringRotMult);
+          ctx.strokeStyle = outerColor;
           ctx.lineWidth = 3;
           ctx.setLineDash([15, 10, 5, 10]);
           ctx.beginPath();
@@ -6267,6 +6303,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           ctx.restore();
 
           // Hexagonal Drone Body
+          const nodeColor = '#A371F7';
           ctx.save();
           ctx.rotate(ufo.angle || now * 0.0008);
           ctx.strokeStyle = nodeColor;
@@ -6297,10 +6334,34 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           ctx.stroke();
           ctx.restore();
 
+          if (nodeHealthRatio < 0.5) {
+             ctx.save();
+             const fractureColor = nodeHealthRatio < 0.25 ? '#ff0055' : '#ffbf00';
+             let fractureAlpha = 0.8;
+             if (nodeHealthRatio < 0.25) {
+                 fractureAlpha = 0.8 + Math.sin(now * 0.015) * 0.2;
+             }
+             ctx.strokeStyle = fractureColor;
+             ctx.globalAlpha = fractureAlpha;
+             ctx.lineWidth = 1.5;
+             ctx.beginPath();
+             ctx.moveTo(-rad * 0.55, -rad * 0.15);
+             ctx.lineTo(-rad * 0.15, rad * 0.05);
+             ctx.lineTo(rad * 0.2, rad * 0.3);
+             ctx.stroke();
+
+             ctx.beginPath();
+             ctx.moveTo(rad * 0.45, -rad * 0.2);
+             ctx.lineTo(rad * 0.1, -rad * 0.05);
+             ctx.lineTo(-rad * 0.3, rad * 0.25);
+             ctx.stroke();
+             ctx.restore();
+          }
+
           // Glowing Central Lens
-          ctx.fillStyle = coreColor;
+          ctx.fillStyle = lensColor;
           ctx.shadowBlur = 20;
-          ctx.shadowColor = coreColor;
+          ctx.shadowColor = lensColor;
           ctx.beginPath();
           ctx.arc(0, 0, rad * 0.35 + nodePulse * 3, 0, Math.PI * 2);
           ctx.fill();
@@ -6322,7 +6383,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           // 1. Draw World Telegraphs & Attacks from boss center
           if (ufo.laserSweepTelegraph && ufo.laserSweepTelegraph > 0) {
             ctx.save();
-            const ang = ufo.laserSweepAngle || (Math.PI / 2);
+            const ang = ufo.laserSweepAngle ?? (Math.PI / 2);
             
             const lockThreshold = phase === 3 ? 45 : (phase === 2 ? 50 : 60);
             const isLocked = ufo.laserSweepTelegraph <= lockThreshold;
@@ -6351,7 +6412,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ctx.restore();
           } else if (ufo.laserSweepFiring && ufo.laserSweepFiring > 0) {
             ctx.save();
-            const ang = ufo.laserSweepAngle || (Math.PI / 2);
+            const ang = ufo.laserSweepAngle ?? (Math.PI / 2);
             ctx.strokeStyle = '#00ffff';
             ctx.shadowBlur = 35;
             ctx.shadowColor = '#00ffff';
@@ -6503,7 +6564,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           
           // 8. Physical sweep-beam emitter (underneath armour)
           if ((ufo.laserSweepTelegraph && ufo.laserSweepTelegraph > 0) || (ufo.laserSweepFiring && ufo.laserSweepFiring > 0)) {
-            const localBeamAngle = (ufo.laserSweepAngle || Math.PI / 2) - faceRot;
+            const localBeamAngle = (ufo.laserSweepAngle ?? Math.PI / 2) - faceRot;
             ctx.save();
             ctx.rotate(localBeamAngle);
             
@@ -6905,6 +6966,78 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           const primaryColor = isVulnerable ? '#ffaa00' : '#00ffff'; // TRON cyan and overheat amber
           const accentColor = isVulnerable ? '#ffffff' : '#ff0055';
 
+          const activeShieldNodes = ufosRef.current.filter(
+            candidate => candidate.type === 'shield_node' && candidate.health > 0
+          );
+
+          for (let nodeIndex = 0; nodeIndex < activeShieldNodes.length; nodeIndex++) {
+            const node = activeShieldNodes[nodeIndex];
+            const nodeLocalX = node.x - ufo.x;
+            const nodeLocalY = node.y - ufo.y;
+            const nodeAngle = Math.atan2(nodeLocalY, nodeLocalX);
+            const shieldRingRadius = rad * 0.92;
+            const segmentHalfWidth = 0.38;
+
+            let outerColor = 'rgba(163, 113, 247, 0.35)';
+            let innerColor = 'rgba(0, 255, 255, 0.65)';
+            let pulse = eyePulse;
+
+            if (ufo.bossState === 'laserCharge') {
+              outerColor = 'rgba(255, 0, 85, 0.5)';
+              innerColor = 'rgba(255, 255, 255, 0.85)';
+            } else if (ufo.bossState === 'laserFire') {
+              outerColor = 'rgba(255, 0, 85, 0.65)';
+              innerColor = 'rgba(255, 255, 255, 0.95)';
+              pulse = 0.8 + 0.2 * Math.sin(now * 0.02);
+            }
+
+            // Tethers
+            ctx.save();
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = innerColor;
+            
+            ctx.strokeStyle = outerColor;
+            ctx.lineWidth = 12;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(nodeLocalX, nodeLocalY);
+            ctx.stroke();
+
+            ctx.strokeStyle = innerColor;
+            ctx.lineWidth = 3;
+            ctx.globalAlpha = pulse;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(nodeLocalX, nodeLocalY);
+            ctx.stroke();
+            
+            const packetProgress = (now * (ufo.bossState === 'laserCharge' ? 0.0015 : 0.0007) + nodeIndex * 0.33) % 1;
+            const packetX = ufo.bossState === 'laserCharge' ? nodeLocalX * (1 - packetProgress) : nodeLocalX * packetProgress;
+            const packetY = ufo.bossState === 'laserCharge' ? nodeLocalY * (1 - packetProgress) : nodeLocalY * packetProgress;
+            
+            ctx.fillStyle = innerColor;
+            ctx.beginPath();
+            ctx.arc(packetX, packetY, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Shield segment
+            ctx.globalAlpha = 0.5 + 0.5 * pulse;
+            
+            ctx.strokeStyle = outerColor;
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.arc(0, 0, shieldRingRadius, nodeAngle - segmentHalfWidth, nodeAngle + segmentHalfWidth);
+            ctx.stroke();
+
+            ctx.strokeStyle = innerColor;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, 0, shieldRingRadius, nodeAngle - segmentHalfWidth, nodeAngle + segmentHalfWidth);
+            ctx.stroke();
+
+            ctx.restore();
+          }
+
           ctx.shadowBlur = isVulnerable ? 50 + eyePulse * 40 : 30 + eyePulse * 15;
           ctx.shadowColor = primaryColor;
           
@@ -6916,6 +7049,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           const ringRad = rad * 1.4;
+          const dataTick = Math.floor(now / 350);
           for (let i = 0; i < 16; i++) {
             const angle = (i / 16) * Math.PI * 2;
             const px = Math.cos(angle) * ringRad;
@@ -6923,7 +7057,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(angle + Math.PI / 2);
-            ctx.fillText(Math.random() > 0.5 ? '1' : '0', 0, 0);
+            ctx.fillText(((i + dataTick) % 2).toString(), 0, 0);
             ctx.restore();
           }
           ctx.restore();
@@ -7037,14 +7171,19 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           ctx.strokeStyle = 'rgba(200, 20, 20, 0.4)';
           ctx.lineWidth = 1;
           for(let i=0; i<5; i++) {
+            const vesselPhase = i * 1.73;
+            const startOffset = Math.sin(vesselPhase) * eyeRad * 0.1;
+            const controlOffset = Math.sin(vesselPhase + 1.2) * eyeRad * 0.2;
+            const endOffset = Math.sin(vesselPhase + 2.4) * eyeRad * 0.1;
+            
             ctx.beginPath();
-            ctx.moveTo(-eyeRad * 0.6, (Math.random() - 0.5) * eyeRad * 0.2);
-            ctx.quadraticCurveTo(-eyeRad * 0.3, (Math.random() - 0.5) * eyeRad * 0.4, 0, (Math.random() - 0.5) * eyeRad * 0.2);
+            ctx.moveTo(-eyeRad * 0.6, startOffset);
+            ctx.quadraticCurveTo(-eyeRad * 0.3, controlOffset, 0, endOffset);
             ctx.stroke();
             
             ctx.beginPath();
-            ctx.moveTo(eyeRad * 0.6, (Math.random() - 0.5) * eyeRad * 0.2);
-            ctx.quadraticCurveTo(eyeRad * 0.3, (Math.random() - 0.5) * eyeRad * 0.4, 0, (Math.random() - 0.5) * eyeRad * 0.2);
+            ctx.moveTo(eyeRad * 0.6, startOffset);
+            ctx.quadraticCurveTo(eyeRad * 0.3, controlOffset, 0, endOffset);
             ctx.stroke();
           }
 
@@ -7099,18 +7238,23 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           for(let i=0; i<30; i++) {
              const a = (i / 30) * Math.PI * 2;
              const inner = irisRad * 0.3;
-             const outer = irisRad * 0.9 + Math.random() * (irisRad * 0.1);
+             const outerVariation = (Math.sin(i * 12.9898) + 1) * 0.5;
+             const outer = irisRad * (0.9 + outerVariation * 0.1);
              ctx.beginPath();
              ctx.moveTo(Math.cos(a)*inner, Math.sin(a)*inner);
              ctx.lineTo(Math.cos(a)*outer, Math.sin(a)*outer);
              ctx.stroke();
           }
 
+          const coreHealthRatio = Math.max(0, Math.min(1, ufo.health / Math.max(1, ufo.maxHealth)));
+          const isCoreCritical = isVulnerable && coreHealthRatio <= 0.25;
+          const criticalPupilPulse = isCoreCritical ? 1 + Math.sin(now * 0.018) * 0.12 : 1;
+
           // The Slit Pupil (Dilates based on vulnerability and distance)
           ctx.fillStyle = '#000000';
           ctx.shadowBlur = 0;
           ctx.beginPath();
-          const pupilWidth = isVulnerable ? eyeRad * 0.15 : eyeRad * 0.05;
+          const pupilWidth = (isVulnerable ? eyeRad * 0.15 : eyeRad * 0.05) * criticalPupilPulse;
           const pupilHeight = isVulnerable ? eyeRad * 0.35 : eyeRad * 0.3;
           ctx.ellipse(0, 0, pupilWidth, pupilHeight, 0, 0, Math.PI * 2);
           ctx.fill();
@@ -7124,12 +7268,15 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
              ctx.stroke();
              
              // Random glitch lines across eye
-             if (Math.random() < 0.3) {
+             const glitchPulse = Math.sin(now * 0.025);
+             if (glitchPulse > 0.72) {
+                const glitchY1 = Math.sin(now * 0.017) * irisRad * 0.45;
+                const glitchY2 = Math.sin(now * 0.021 + 1.4) * irisRad * 0.45;
                 ctx.strokeStyle = '#ffffff';
                 ctx.lineWidth = 1;
                 ctx.beginPath();
-                ctx.moveTo(-irisRad * 0.9, (Math.random() - 0.5) * irisRad);
-                ctx.lineTo(irisRad * 0.9, (Math.random() - 0.5) * irisRad);
+                ctx.moveTo(-irisRad * 0.9, glitchY1);
+                ctx.lineTo(irisRad * 0.9, glitchY2);
                 ctx.stroke();
              }
           }
@@ -7146,6 +7293,42 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           ctx.fill();
 
           ctx.restore(); // Remove Eyelid clipping
+
+          if (isCoreCritical) {
+             ctx.lineWidth = 1.5;
+             
+             // Upper-left crack
+             ctx.strokeStyle = '#ff0055';
+             ctx.beginPath();
+             ctx.moveTo(-eyeRad * 0.7, -eyeRad * 0.5);
+             ctx.lineTo(-eyeRad * 0.9, -eyeRad * 0.7);
+             ctx.lineTo(-eyeRad * 1.1, -eyeRad * 0.6);
+             ctx.stroke();
+
+             // Upper-right crack
+             ctx.strokeStyle = '#ffaa00';
+             ctx.beginPath();
+             ctx.moveTo(eyeRad * 0.7, -eyeRad * 0.5);
+             ctx.lineTo(eyeRad * 0.8, -eyeRad * 0.8);
+             ctx.lineTo(eyeRad * 1.0, -eyeRad * 0.9);
+             ctx.stroke();
+
+             // Lower-left crack
+             ctx.strokeStyle = '#ffaa00';
+             ctx.beginPath();
+             ctx.moveTo(-eyeRad * 0.6, eyeRad * 0.5);
+             ctx.lineTo(-eyeRad * 0.8, eyeRad * 0.7);
+             ctx.lineTo(-eyeRad * 0.9, eyeRad * 0.9);
+             ctx.stroke();
+
+             // Lower-right crack
+             ctx.strokeStyle = '#ff0055';
+             ctx.beginPath();
+             ctx.moveTo(eyeRad * 0.6, eyeRad * 0.5);
+             ctx.lineTo(eyeRad * 0.9, eyeRad * 0.6);
+             ctx.lineTo(eyeRad * 1.0, eyeRad * 0.8);
+             ctx.stroke();
+          }
 
           ctx.restore();
 
