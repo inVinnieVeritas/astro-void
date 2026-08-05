@@ -20,6 +20,9 @@ import {
 } from '../types';
 import { soundEngine } from '../audio/soundEngine';
 
+const MOBILE_AXIS_THRESHOLD = 0.30;
+const MOBILE_TURN_RATE = 0.070;
+
 // --- TRON VECTOR RED HEXAGON ENEMY SPRITE CACHE ---
 let cachedRedHexOuterCanvas: HTMLCanvasElement | null = null;
 let cachedRedHexInnerCanvas: HTMLCanvasElement | null = null;
@@ -3092,65 +3095,43 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
           const joystick = state.touchJoystick;
           const hasActiveTouchJoystick = Boolean(isTouchDevice) && joystick.active && joystick.distance > 0;
-          let mobileForwardAnalog = 0;
 
           if (isTouchDevice) {
+            let jTouchLeft = false;
+            let jTouchRight = false;
             let jTouchThrust = false;
             let jTouchReverse = false;
 
             if (hasActiveTouchJoystick) {
-              const rawX = Math.cos(joystick.angle) * joystick.distance;
-              const rawY = Math.sin(joystick.angle) * joystick.distance;
-              const rawDist = Math.hypot(rawX, rawY);
-              const deadzone = 0.20;
-
-              if (rawDist > deadzone) {
-                const mappedDist = Math.min(1.0, (rawDist - deadzone) / (1.0 - deadzone));
-                const analogStrength = mappedDist * mappedDist;
-                const normX = (rawX / rawDist) * analogStrength;
-                const normY = (rawY / rawDist) * analogStrength;
-
-                const maxTurnRate = 0.085;
-                ship.angle += normX * maxTurnRate;
-
-                if (normY < -0.01) {
-                  jTouchThrust = true;
-                  mobileForwardAnalog = Math.abs(normY);
-                } else if (normY > 0.01) {
-                  const forwardX = Math.cos(ship.angle);
-                  const forwardY = Math.sin(ship.angle);
-                  const forwardVelocity = ship.thrust.x * forwardX + ship.thrust.y * forwardY;
-                  
-                  if (forwardVelocity > 0.5) {
-                    ship.thrust.x -= forwardX * 0.15 * normY;
-                    ship.thrust.y -= forwardY * 0.15 * normY;
-                  } else {
-                    jTouchReverse = true;
-                  }
-                }
-              }
+              const x = Math.cos(joystick.angle) * joystick.distance;
+              const y = Math.sin(joystick.angle) * joystick.distance;
+              
+              jTouchLeft = x < -MOBILE_AXIS_THRESHOLD;
+              jTouchRight = x > MOBILE_AXIS_THRESHOLD;
+              jTouchThrust = y < -MOBILE_AXIS_THRESHOLD;
+              jTouchReverse = y > MOBILE_AXIS_THRESHOLD;
             }
+            state.touchLeft = jTouchLeft;
+            state.touchRight = jTouchRight;
             state.touchThrust = jTouchThrust;
             state.touchReverse = jTouchReverse;
           }
 
-          if (!hasActiveTouchJoystick) {
-            if (controlScheme === 'classic' || isTouchDevice) {
-              // Turning - smoothed rotation speed for better maneuvering
-              if (state.keys['ArrowLeft'] || state.keys['a'] || state.keys['A'] || state.touchLeft) {
-                ship.rotation = -0.055;
-              } else if (state.keys['ArrowRight'] || state.keys['d'] || state.keys['D'] || state.touchRight) {
-                ship.rotation = 0.055;
-              } else {
-                ship.rotation = 0;
-              }
-              ship.angle += ship.rotation;
-            } else if (controlScheme === 'mouse' && !isTouchDevice) {
-              // Mouse Aiming
-              const dx = state.mousePos.x - ship.x;
-              const dy = state.mousePos.y - ship.y;
-              ship.angle = Math.atan2(dy, dx);
+          if (controlScheme === 'classic' || isTouchDevice) {
+            // Turning - smoothed rotation speed for better maneuvering
+            if (state.keys['ArrowLeft'] || state.keys['a'] || state.keys['A'] || state.touchLeft) {
+              ship.rotation = (isTouchDevice && state.touchLeft) ? -MOBILE_TURN_RATE : -0.055;
+            } else if (state.keys['ArrowRight'] || state.keys['d'] || state.keys['D'] || state.touchRight) {
+              ship.rotation = (isTouchDevice && state.touchRight) ? MOBILE_TURN_RATE : 0.055;
+            } else {
+              ship.rotation = 0;
             }
+            ship.angle += ship.rotation;
+          } else if (controlScheme === 'mouse' && !isTouchDevice) {
+            // Mouse Aiming
+            const dx = state.mousePos.x - ship.x;
+            const dy = state.mousePos.y - ship.y;
+            ship.angle = Math.atan2(dy, dx);
           }
 
           // Thrusting
@@ -3158,9 +3139,6 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ship.thrusting = true;
             ship.reverse = false;
             let accel = pTimers.golden > 0 ? 0.25 : 0.17;
-            if (isTouchDevice && state.touchThrust) {
-              accel *= Math.max(0.1, mobileForwardAnalog);
-            }
             if (ship.frozenTimer > 0) accel *= 0.4; // Thrusters slowed by 60% when frozen!
             if (isInsideNebula) accel *= 0.5; // Mobility Lock: 50% thrust acceleration reduction inside Ionizing Nebula!
 

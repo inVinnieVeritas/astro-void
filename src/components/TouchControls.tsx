@@ -27,23 +27,11 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   isPaused,
 }) => {
   const joystickBaseRef = useRef<HTMLDivElement>(null);
-  const [activeTouchId, setActiveTouchId] = useState<number | null>(null);
+  const joystickKnobRef = useRef<HTMLDivElement>(null);
+  const activePointerIdRef = useRef<number | null>(null);
   const [knobPos, setKnobPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isJoystickActive, setIsJoystickActive] = useState(false);
   const fireIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  const RADIUS = 50; // max joystick displacement in px
-  const DEADZONE_RADIUS = 12; // 12px deadzone radius (~24% of RADIUS) to filter tiny accidental touches
-
-  const mouseListenersRef = useRef<{ move: (e: MouseEvent) => void; up: () => void } | null>(null);
-
-  const cleanupMouseListeners = useCallback(() => {
-    if (mouseListenersRef.current) {
-      window.removeEventListener('mousemove', mouseListenersRef.current.move);
-      window.removeEventListener('mouseup', mouseListenersRef.current.up);
-      mouseListenersRef.current = null;
-    }
-  }, []);
 
   const dispatchJoystick = useCallback((active: boolean, angle: number, distance: number) => {
     window.dispatchEvent(
@@ -59,57 +47,65 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     const centerX = rect.left + rect.width / 2;
     const centerY = rect.top + rect.height / 2;
 
+    const baseDiameter = joystickBaseRef.current.clientWidth;
+    const knobDiameter = joystickKnobRef.current ? joystickKnobRef.current.offsetWidth : 44;
+    const maxRadius = baseDiameter / 2 - knobDiameter / 2;
+    const deadzoneRadius = maxRadius * 0.20;
+
     const dx = clientX - centerX;
     const dy = clientY - centerY;
     const dist = Math.hypot(dx, dy);
     const angle = Math.atan2(dy, dx);
 
-    const clampedDist = Math.min(dist, RADIUS);
+    const clampedDist = Math.min(dist, maxRadius);
     const knobX = Math.cos(angle) * clampedDist;
     const knobY = Math.sin(angle) * clampedDist;
 
     setKnobPos({ x: knobX, y: knobY });
 
-    if (clampedDist < DEADZONE_RADIUS) {
+    if (clampedDist < deadzoneRadius) {
       // Inside deadzone: visual feedback on knob, but zero movement dispatched to ship
       setIsJoystickActive(false);
       dispatchJoystick(false, angle, 0);
     } else {
       setIsJoystickActive(true);
       // Rescale distance smoothly from 0.0 to 1.0 outside deadzone
-      const normDist = (clampedDist - DEADZONE_RADIUS) / (RADIUS - DEADZONE_RADIUS);
+      const normDist = (clampedDist - deadzoneRadius) / (maxRadius - deadzoneRadius);
       dispatchJoystick(true, angle, normDist);
     }
   }, [dispatchJoystick]);
 
   const handlePointerUp = useCallback(() => {
-    setActiveTouchId(null);
+    activePointerIdRef.current = null;
     setKnobPos({ x: 0, y: 0 });
     setIsJoystickActive(false);
     dispatchJoystick(false, 0, 0);
-    cleanupMouseListeners();
-  }, [dispatchJoystick, cleanupMouseListeners]);
+  }, [dispatchJoystick]);
 
-  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (isPaused) return;
-    if (e.changedTouches.length > 0) {
-      const touch = e.changedTouches[0];
-      setActiveTouchId(touch.identifier);
-      handlePointerMove(touch.clientX, touch.clientY);
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isPaused || activePointerIdRef.current !== null) return;
+    activePointerIdRef.current = e.pointerId;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    handlePointerMove(e.clientX, e.clientY);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isPaused || activePointerIdRef.current !== e.pointerId) return;
+    handlePointerMove(e.clientX, e.clientY);
+  };
+
+  const onPointerUpOrCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerIdRef.current === e.pointerId) {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      handlePointerUp();
     }
   };
 
-  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (isPaused) return;
-    if (activeTouchId !== null) {
-      for (let i = 0; i < e.touches.length; i++) {
-        if (e.touches[i].identifier === activeTouchId) {
-          handlePointerMove(e.touches[i].clientX, e.touches[i].clientY);
-          break;
-        }
-      }
+  const onLostPointerCapture = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerIdRef.current === e.pointerId) {
+      handlePointerUp();
     }
   };
 
@@ -134,23 +130,21 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   useEffect(() => {
     return () => {
       if (fireIntervalRef.current) clearInterval(fireIntervalRef.current);
-      cleanupMouseListeners();
     };
-  }, [cleanupMouseListeners]);
+  }, []);
+
   useEffect(() => {
     if (isPaused) {
       if (fireIntervalRef.current) {
         clearInterval(fireIntervalRef.current);
         fireIntervalRef.current = null;
       }
-      setActiveTouchId(null);
+      activePointerIdRef.current = null;
       setKnobPos({ x: 0, y: 0 });
       setIsJoystickActive(false);
       dispatchJoystick(false, 0, 0);
-      cleanupMouseListeners();
     }
-  }, [isPaused, dispatchJoystick, cleanupMouseListeners]);
-
+  }, [isPaused, dispatchJoystick]);
 
   return (
     <div className="fixed inset-0 pointer-events-none z-40 select-none overflow-hidden flex justify-between items-end p-4 sm:p-8">
@@ -158,23 +152,11 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
       <div className="pointer-events-auto flex flex-col items-center gap-2 mb-2 sm:mb-4">
         <div
           ref={joystickBaseRef}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handlePointerUp}
-          onTouchCancel={handlePointerUp}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            if (isPaused) return;
-            const moveHandler = (me: MouseEvent) => handlePointerMove(me.clientX, me.clientY);
-            const upHandler = () => {
-              handlePointerUp();
-            };
-            cleanupMouseListeners();
-            mouseListenersRef.current = { move: moveHandler, up: upHandler };
-            window.addEventListener('mousemove', moveHandler);
-            window.addEventListener('mouseup', upHandler);
-            handlePointerMove(e.clientX, e.clientY);
-          }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUpOrCancel}
+          onPointerCancel={onPointerUpOrCancel}
+          onLostPointerCapture={onLostPointerCapture}
           className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 flex items-center justify-center transition-colors touch-none shadow-2xl backdrop-blur-md ${
             isJoystickActive
               ? 'bg-[#161B22]/90 border-[#00e5ff] shadow-[0_0_25px_rgba(0,229,255,0.5)] scale-105'
@@ -187,10 +169,10 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             <div className="h-full w-[1px] bg-[#38bdf8] absolute" />
             <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full border border-dashed border-[#38bdf8]" />
           </div>
-
           {/* Joystick Knob */}
           <div
-            className={`absolute w-11 h-11 sm:w-14 sm:h-14 rounded-full border-2 flex items-center justify-center shadow-lg transition-transform duration-75 ${
+            ref={joystickKnobRef}
+            className={`absolute w-11 h-11 sm:w-14 sm:h-14 rounded-full border-2 flex items-center justify-center shadow-lg ${
               isJoystickActive
                 ? 'bg-gradient-to-br from-[#00e5ff] to-[#1F6FEB] border-[#ffffff] shadow-[0_0_15px_#00e5ff]'
                 : 'bg-gradient-to-br from-[#38bdf8] to-[#161B22] border-[#38bdf8]/80'
