@@ -27,6 +27,16 @@ const MOBILE_THRUST_FULL_DISTANCE = 0.95;
 const MOBILE_FULL_THRUST_ALIGNMENT_ANGLE = 0.20;
 const MOBILE_THRUST_CUTOFF_ANGLE = 0.90;
 
+const getBossArenaScale = (
+  width: number,
+  height: number,
+  isTouchDevice: boolean
+): number => {
+  if (!isTouchDevice) return 1;
+  const shortSide = Math.min(width, height);
+  return Math.min(1, Math.max(0.62, shortSide / 700));
+};
+
 // --- TRON VECTOR RED HEXAGON ENEMY SPRITE CACHE ---
 let cachedRedHexOuterCanvas: HTMLCanvasElement | null = null;
 let cachedRedHexInnerCanvas: HTMLCanvasElement | null = null;
@@ -1474,6 +1484,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       const w = canvasRef.current?.width || window.innerWidth;
       const h = canvasRef.current?.height || window.innerHeight;
       
+      const currentBossScale = getBossArenaScale(w, h, Boolean(isTouchDevice));
       const isTechnoking = waveNum % 15 === 0;
       const isCoreSeverance = !isTechnoking && waveNum % 10 === 0;
       const isDreadnought = !isTechnoking && !isCoreSeverance;
@@ -1491,10 +1502,11 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
          const boss: UFO = {
             id: 'boss-technoking-' + Math.random(),
             x: safeX,
-            y: Math.max(h * 0.28, 220),
+            y: Math.max(h * 0.28, 220 * currentBossScale),
             vx: 0,
             vy: 0,
-            radius: 115,
+            radius: 115 * currentBossScale,
+bossScale: currentBossScale,
             speed: 1.2,
             shootTimer: 0,
             type: 'technoking',
@@ -1547,10 +1559,11 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
          const boss: UFO = {
             id: 'boss-' + Math.random(),
             x: safeX + (Math.random() - 0.5) * 60,
-            y: isCoreSeverance ? h * 0.35 : Math.max(h * 0.35, 320), // Safely below top UI elements
+            y: isCoreSeverance ? Math.max(h * 0.35, 200 * currentBossScale) : Math.max(h * 0.35, 250 * currentBossScale), // Safely below top UI elements
             vx: isCoreSeverance ? 1.0 : 1.8,
             vy: 0,
-            radius: isCoreSeverance ? 90 : 110,
+            radius: (isCoreSeverance ? 90 : 110) * currentBossScale,
+bossScale: currentBossScale,
             speed: isCoreSeverance ? 1.0 : 1.8,
             shootTimer: 0,
             type: isCoreSeverance ? 'core_severance' : 'dreadnought',
@@ -1578,7 +1591,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   y: boss.y,
                   vx: 0,
                   vy: 0,
-                  radius: 35,
+                  radius: 35 * currentBossScale,
+bossScale: currentBossScale,
                   speed: 0,
                   shootTimer: 0,
                   type: 'shield_node',
@@ -1586,7 +1600,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   maxHealth: 600 + Math.floor(waveNum / 10) * 200,
                   angle: 0,
                   orbitAngle: (Math.PI * 2 / 3) * i,
-                  orbitRadius: 220,
+                  orbitRadius: 220 * currentBossScale,
                   isBoss: false,
                });
             }
@@ -4216,8 +4230,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               const boss = ufosRef.current.find(u => u.type === 'technoking');
               if (boss) {
                 ufo.orbitAngle = (ufo.orbitAngle || 0) + 0.02 * timeFactor;
-                const targetX = boss.x + Math.cos(ufo.orbitAngle) * 160;
-                const targetY = boss.y + Math.sin(ufo.orbitAngle) * 100;
+                const targetX = boss.x + Math.cos(ufo.orbitAngle) * 160 * (boss.bossScale || 1);
+                const targetY = boss.y + Math.sin(ufo.orbitAngle) * 100 * (boss.bossScale || 1);
                 ufo.x += (targetX - ufo.x) * 0.08 * timeFactor;
                 ufo.y += (targetY - ufo.y) * 0.08 * timeFactor;
               }
@@ -4275,7 +4289,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               const sweepX = Math.sin(bt * 0.006) * (w * 0.28);
               const sweepY = Math.cos(bt * 0.004) * 35;
               const targetX = w / 2 + sweepX;
-              const targetY = Math.max(h * 0.28, 220) + sweepY;
+              const targetY = Math.max(h * 0.28, 220 * (ufo.bossScale || 1)) + sweepY;
 
               ufo.x += (targetX - ufo.x) * 0.04 * timeFactor;
               ufo.y += (targetY - ufo.y) * 0.04 * timeFactor;
@@ -4358,7 +4372,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   const dy = ship.y - ufo.y;
                   const proj = dx * Math.cos(laserAngle) + dy * Math.sin(laserAngle);
                   const distToBeam = Math.abs(dx * Math.sin(laserAngle) - dy * Math.cos(laserAngle));
-                  if (distToBeam < 35 && proj > 0 && proj < 1600) {
+                  if (distToBeam < 35 * (ufo.bossScale || 1) && proj > 0 && proj < 1600) {
                     handlePlayerHit({ lethal: true, bypassShield: true });
                   }
                 }
@@ -4410,7 +4424,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   ufo.orbitalFiring -= timeFactor;
                   if (ship.alive) {
                     const distToTarget = Math.hypot(ship.x - (ufo.orbitalTargetX || ship.x), ship.y - (ufo.orbitalTargetY || ship.y));
-                    if (distToTarget < 120) { // Large blast radius
+                    if (distToTarget < 120 * (ufo.bossScale || 1)) { // Large blast radius
                       handlePlayerHit();
                     }
                   }
@@ -4575,7 +4589,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
               ufo.y = (canvasRef.current?.height || window.innerHeight) / 2 - 100 + Math.sin(Date.now() * 0.001) * 30;
 
               const w = canvasRef.current?.width || window.innerWidth;
-              const minSafeX = Math.max(ufo.radius + 60, 320); // Keep away from left HUD
+              const minSafeX = Math.max(ufo.radius + 60, 320 * (ufo.bossScale || 1)); // Keep away from left HUD
               if (ufo.x < minSafeX) {
                 ufo.x = minSafeX;
                 ufo.vx = Math.abs(ufo.vx);
@@ -4619,10 +4633,10 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             if (ufo.bossState === 'burst') {
               const spd = ufo.bossPhase === 2 ? 3.0 : 1.8;
               ufo.x += ufo.vx * (spd / 1.8) * timeFactor;
-              ufo.y = Math.max((canvasRef.current?.height || window.innerHeight) * 0.35, 320) + Math.sin(Date.now() * 0.0025) * 20;
+              ufo.y = Math.max((canvasRef.current?.height || window.innerHeight) * 0.35, 320 * (ufo.bossScale || 1)) + Math.sin(Date.now() * 0.0025) * 20;
 
               const w = canvasRef.current?.width || window.innerWidth;
-              const minSafeX = Math.max(ufo.radius + 40, 320); // Keep away from left HUD
+              const minSafeX = Math.max(ufo.radius + 40, 320 * (ufo.bossScale || 1)); // Keep away from left HUD
               if (ufo.x < minSafeX) {
                 ufo.x = minSafeX;
                 ufo.vx = Math.abs(ufo.vx);
@@ -4797,7 +4811,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                     speed: 3.5,
                     life: 600, // live a long time
                     maxLife: 600,
-                    size: 14,
+                    size: 14 * (ufo.bossScale || 1),
                     color: '#ffaa00',
                     isPlayer: false,
                     isMine: true
@@ -5301,7 +5315,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
                   }
                 } else {
                   // SHIELDED PHASE (INVULNERABLE OUTSIDE ROTATING SHIELD GAP)
-                  const shieldRadius = ufo.radius + 28;
+                  const bScale = ufo.bossScale || 1;
+                  const shieldRadius = ufo.radius + 28 * bScale;
                   if (dist < shieldRadius + b.size) {
                     const impactAngle = Math.atan2(b.y - ufo.y, b.x - ufo.x);
                     let diff = impactAngle - (ufo.shieldAngle || 0);
@@ -6538,7 +6553,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ctx.strokeStyle = '#00ffff';
             ctx.shadowBlur = 35;
             ctx.shadowColor = '#00ffff';
-            ctx.lineWidth = 60; // visual radius matches collision radius of 35
+            ctx.lineWidth = 60 * (ufo.bossScale || 1); // visual radius matches collision radius of 35
             ctx.beginPath();
             ctx.moveTo(0, 0);
             ctx.lineTo(Math.cos(ang) * 1600, Math.sin(ang) * 1600);
@@ -6692,7 +6707,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             
             const isFiring = ufo.laserSweepFiring && ufo.laserSweepFiring > 0;
             const glowColor = isFiring ? '#ffffff' : '#00ffff';
-            const railLen = rad + 15;
+            const railLen = rad + 15 * (ufo.bossScale || 1);
             
             ctx.shadowBlur = isFiring ? 40 : 15;
             ctx.shadowColor = glowColor;
@@ -7485,7 +7500,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           // Directional Rotating Outer Geometric Shield Ring (Drops completely during Overheated phase)
           if (!isOverheated) {
             ctx.save();
-            const shR = rad + 35; // Moved further out
+            const bScale = ufo.bossScale || 1;
+          const shR = rad + 35 * bScale; // Moved further out
             const sAngle = ufo.shieldAngle || 0;
             const gapHalf = Math.PI / 6.5; // Slightly narrower gap
             const arcStart = sAngle + gapHalf;
@@ -7520,7 +7536,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ctx.lineWidth = 2;
             ctx.setLineDash([15, 10]);
             ctx.beginPath();
-            ctx.arc(0, 0, shR + 15, arcStart - 0.2, arcEnd + 0.2);
+            ctx.arc(0, 0, shR + 15 * bScale, arcStart - 0.2, arcEnd + 0.2);
             ctx.stroke();
             ctx.setLineDash([]);
 
@@ -7543,7 +7559,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
             // Directional vulnerability indicator pulsing in the opening gap (ARROW POINTING IN)
             const gapPulse = (Math.sin(now * 0.01) + 1) / 2; // 0 to 1
-            const arrowDist = shR + 45 + gapPulse * 25;
+            const arrowDist = shR + (45 + gapPulse * 25) * bScale;
             const arrowX = Math.cos(sAngle) * arrowDist;
             const arrowY = Math.sin(sAngle) * arrowDist;
             

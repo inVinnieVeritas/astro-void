@@ -89,6 +89,7 @@ export interface UFO {
   consumeTargetX?: number;
   consumeTargetY?: number;
   isBoss?: boolean;
+  bossScale?: number;
   bossPhase?: 1 | 2 | 3;
   bossState?: 'burst' | 'laserCharge' | 'laserFire' | 'cooldown' | 'mines';
   bossStateTimer?: number;
