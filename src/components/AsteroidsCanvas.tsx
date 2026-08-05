@@ -3092,43 +3092,65 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
           const joystick = state.touchJoystick;
           const hasActiveTouchJoystick = Boolean(isTouchDevice) && joystick.active && joystick.distance > 0;
+          let mobileForwardAnalog = 0;
 
           if (isTouchDevice) {
-            state.touchThrust = hasActiveTouchJoystick && joystick.distance > 0.25;
+            let jTouchThrust = false;
+            let jTouchReverse = false;
+
+            if (hasActiveTouchJoystick) {
+              const rawX = Math.cos(joystick.angle) * joystick.distance;
+              const rawY = Math.sin(joystick.angle) * joystick.distance;
+              const rawDist = Math.hypot(rawX, rawY);
+              const deadzone = 0.20;
+
+              if (rawDist > deadzone) {
+                const mappedDist = Math.min(1.0, (rawDist - deadzone) / (1.0 - deadzone));
+                const analogStrength = mappedDist * mappedDist;
+                const normX = (rawX / rawDist) * analogStrength;
+                const normY = (rawY / rawDist) * analogStrength;
+
+                const maxTurnRate = 0.085;
+                ship.angle += normX * maxTurnRate;
+
+                if (normY < -0.01) {
+                  jTouchThrust = true;
+                  mobileForwardAnalog = Math.abs(normY);
+                } else if (normY > 0.01) {
+                  const forwardX = Math.cos(ship.angle);
+                  const forwardY = Math.sin(ship.angle);
+                  const forwardVelocity = ship.thrust.x * forwardX + ship.thrust.y * forwardY;
+                  
+                  if (forwardVelocity > 0.5) {
+                    ship.thrust.x -= forwardX * 0.15 * normY;
+                    ship.thrust.y -= forwardY * 0.15 * normY;
+                  } else {
+                    jTouchReverse = true;
+                  }
+                }
+              }
+            }
+            state.touchThrust = jTouchThrust;
+            state.touchReverse = jTouchReverse;
           }
 
-          if (hasActiveTouchJoystick) {
-            // Virtual Joystick Steering - smooth & controlled rotation
-            const targetAngle = joystick.angle;
-            let diff = targetAngle - ship.angle;
-            while (diff < -Math.PI) diff += Math.PI * 2;
-            while (diff > Math.PI) diff -= Math.PI * 2;
-
-            const maxTurnRate = 0.060; // Max turn speed (~3.4 deg/frame), gentle and precise
-            const angleMag = Math.abs(diff);
-            const turnFactor = Math.min(1.0, angleMag / (Math.PI / 4)); // Smooth ramp for fine adjustments
-            const turnStep = maxTurnRate * (0.35 + 0.65 * joystick.distance) * turnFactor;
-
-            if (angleMag <= turnStep) {
-              ship.angle = targetAngle;
-            } else {
-              ship.angle += Math.sign(diff) * turnStep;
+          if (!hasActiveTouchJoystick) {
+            if (controlScheme === 'classic' || isTouchDevice) {
+              // Turning - smoothed rotation speed for better maneuvering
+              if (state.keys['ArrowLeft'] || state.keys['a'] || state.keys['A'] || state.touchLeft) {
+                ship.rotation = -0.055;
+              } else if (state.keys['ArrowRight'] || state.keys['d'] || state.keys['D'] || state.touchRight) {
+                ship.rotation = 0.055;
+              } else {
+                ship.rotation = 0;
+              }
+              ship.angle += ship.rotation;
+            } else if (controlScheme === 'mouse' && !isTouchDevice) {
+              // Mouse Aiming
+              const dx = state.mousePos.x - ship.x;
+              const dy = state.mousePos.y - ship.y;
+              ship.angle = Math.atan2(dy, dx);
             }
-          } else if (controlScheme === 'classic' || isTouchDevice) {
-            // Turning - smoothed rotation speed for better maneuvering
-            if (state.keys['ArrowLeft'] || state.keys['a'] || state.keys['A'] || state.touchLeft) {
-              ship.rotation = -0.055;
-            } else if (state.keys['ArrowRight'] || state.keys['d'] || state.keys['D'] || state.touchRight) {
-              ship.rotation = 0.055;
-            } else {
-              ship.rotation = 0;
-            }
-            ship.angle += ship.rotation;
-          } else if (controlScheme === 'mouse' && !isTouchDevice) {
-            // Mouse Aiming
-            const dx = state.mousePos.x - ship.x;
-            const dy = state.mousePos.y - ship.y;
-            ship.angle = Math.atan2(dy, dx);
           }
 
           // Thrusting
@@ -3136,9 +3158,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             ship.thrusting = true;
             ship.reverse = false;
             let accel = pTimers.golden > 0 ? 0.25 : 0.17;
-            if (isTouchDevice && joystick && joystick.active && joystick.distance > 0) {
-              // Smoothly scale thruster power from 50% to 100% based on stick deflection
-              accel *= (0.5 + 0.5 * joystick.distance);
+            if (isTouchDevice && state.touchThrust) {
+              accel *= Math.max(0.1, mobileForwardAnalog);
             }
             if (ship.frozenTimer > 0) accel *= 0.4; // Thrusters slowed by 60% when frozen!
             if (isInsideNebula) accel *= 0.5; // Mobility Lock: 50% thrust acceleration reduction inside Ionizing Nebula!
