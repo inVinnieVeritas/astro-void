@@ -558,6 +558,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
       {/* Retro Arcade HUD */}
       <HUD
         score={score}
+        onRestart={handleRestart}
         highScore={highScore}
         wave={wave}
         lives={lives}

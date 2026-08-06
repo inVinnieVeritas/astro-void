@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Pause, Play, Settings, Trophy, Award, Zap, Shield, Sparkles, Target, Bomb, Maximize, Minimize } from 'lucide-react';
+import { Volume2, VolumeX, Pause, Play, Settings, Trophy, Award, Zap, Shield, Sparkles, Target, Bomb, Maximize, Minimize, RotateCcw } from 'lucide-react';
 import { GameMode } from '../types';
 
 const MODE_LABELS: Record<GameMode, string> = {
@@ -43,6 +43,7 @@ interface HUDProps {
   onOpenAchievements: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  onRestart?: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -67,7 +68,8 @@ export const HUD: React.FC<HUDProps> = ({
   onOpenLeaderboard,
   onOpenAchievements,
   isFullscreen,
-  onToggleFullscreen
+  onToggleFullscreen,
+  onRestart
 }) => {
   const [isHovered, setIsHovered] = React.useState(false);
   const isFaded = isShipNearHUD || isHovered;
@@ -75,12 +77,18 @@ export const HUD: React.FC<HUDProps> = ({
   return (
     <div className="absolute top-0 left-0 w-full p-3 md:p-5 pointer-events-none flex flex-col justify-between h-full z-20 select-none">
       {/* Top Header Row */}
-      <div className="flex justify-between items-start gap-3">
+      <div className={
+        isTouchDevice
+          ? 'flex flex-col-reverse items-end w-full gap-2 pointer-events-none'
+          : 'flex justify-between items-start gap-3 w-full pointer-events-none'
+      }>
         {/* Left Stats Panel */}
         <div
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
-          className={`bg-[#0A0F19]/40 backdrop-blur-sm border border-[#30363D]/60 rounded-lg p-3 pointer-events-auto min-w-[170px] shadow-lg transition-all duration-300 ${
+          className={`bg-[#0A0F19]/40 backdrop-blur-sm border border-[#30363D]/60 rounded-lg pointer-events-auto shadow-lg transition-all duration-300 ${
+            isTouchDevice ? 'w-full p-2 self-start' : 'p-3 min-w-[170px]'
+          } ${
             isFaded ? 'opacity-20 hover:opacity-100' : 'opacity-100'
           }`}
         >
@@ -235,7 +243,9 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* Right Actions & High Score Panel */}
-        <div className="flex flex-col items-end gap-2 pointer-events-auto">
+        <div className={`flex flex-col items-end gap-2 pointer-events-auto ${
+          isTouchDevice ? 'self-end w-full' : ''
+        }`}>
           {/* Action Toolbar */}
           <div className="flex items-center gap-1.5 bg-[#0D1117]/90 backdrop-blur-md border border-[#30363D] rounded-lg p-1 shadow-md">
             <button
@@ -251,16 +261,17 @@ export const HUD: React.FC<HUDProps> = ({
                   : 'bg-[#3FB950]/15 border-[#3FB950] text-[#3FB950]'
               }`}
               title="Toggle Audio (Press M Key anytime)"
+              aria-label="Toggle sound"
             >
               {isMuted ? (
                 <>
                   <VolumeX className="w-4 h-4 text-[#F85149]" />
-                  <span>SOUND OFF [M]</span>
+                  {!isTouchDevice && <span>SOUND OFF [M]</span>}
                 </>
               ) : (
                 <>
                   <Volume2 className="w-4 h-4 text-[#3FB950]" />
-                  <span>SOUND ON [M]</span>
+                  {!isTouchDevice && <span>SOUND ON [M]</span>}
                 </>
               )}
             </button>
@@ -273,8 +284,26 @@ export const HUD: React.FC<HUDProps> = ({
               }}
               className="p-1.5 text-[#8B949E] hover:text-[#E6EDF3] hover:bg-[#21262D] rounded transition-colors outline-none"
               title={isPaused ? 'Resume Game (P / Esc)' : 'Pause Game (P / Esc)'}
+              aria-label={isPaused ? 'Resume game' : 'Pause game'}
             >
               {isPaused ? <Play className="w-4 h-4 text-[#58A6FF]" /> : <Pause className="w-4 h-4" />}
+            </button>
+            <button
+              tabIndex={-1}
+              onFocus={(e) => e.currentTarget.blur()}
+              onClick={(e) => {
+                e.currentTarget.blur();
+                if (onRestart) {
+                  if (window.confirm('Restart the current run? Your current score and progress will be reset.')) {
+                    onRestart();
+                  }
+                }
+              }}
+              className="p-1.5 text-[#8B949E] hover:text-[#F85149] hover:bg-[#21262D] rounded transition-colors outline-none"
+              title="Restart Game"
+              aria-label="Restart game"
+            >
+              <RotateCcw className="w-4 h-4" />
             </button>
             <button
               tabIndex={-1}
@@ -285,6 +314,7 @@ export const HUD: React.FC<HUDProps> = ({
               }}
               className="p-1.5 text-[#8B949E] hover:text-[#D29922] hover:bg-[#21262D] rounded transition-colors outline-none"
               title="High Scores & Stats"
+              aria-label="Open leaderboard"
             >
               <Trophy className="w-4 h-4 text-[#D29922]" />
             </button>
@@ -292,6 +322,7 @@ export const HUD: React.FC<HUDProps> = ({
               onClick={onOpenAchievements}
               className="p-1.5 text-[#8B949E] hover:text-[#A371F7] hover:bg-[#21262D] rounded transition-colors"
               title="Achievements"
+              aria-label="Open achievements"
             >
               <Award className="w-4 h-4 text-[#A371F7]" />
             </button>
@@ -299,6 +330,7 @@ export const HUD: React.FC<HUDProps> = ({
               onClick={onOpenSettings}
               className="p-1.5 text-[#8B949E] hover:text-[#E6EDF3] hover:bg-[#21262D] rounded transition-colors"
               title="Settings & Controls"
+              aria-label="Open settings"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -309,6 +341,7 @@ export const HUD: React.FC<HUDProps> = ({
               }}
               className="p-1.5 text-[#8B949E] hover:text-[#E6EDF3] hover:bg-[#21262D] rounded transition-colors outline-none"
               title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             >
               {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
             </button>
