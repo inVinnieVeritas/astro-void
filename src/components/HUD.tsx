@@ -11,6 +11,15 @@ const MODE_LABELS: Record<GameMode, string> = {
   wave_15_boss: 'WAVE 15 GRID ARCHITECT',
 };
 
+export type HudRect = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+};
+
 interface HUDProps {
   score: number;
   highScore: number;
@@ -41,6 +50,7 @@ interface HUDProps {
   isShipNearCenterHUD?: boolean;
   isBossNearCenterHUD?: boolean;
   isTouchDevice?: boolean;
+  onHudBoundsChange?: (bounds: { left: HudRect | null, right: HudRect | null, center: HudRect | null }) => void;
   onTogglePause: () => void;
   onToggleMute: () => void;
   onOpenSettings: () => void;
@@ -72,6 +82,7 @@ export const HUD: React.FC<HUDProps> = ({
   isShipNearCenterHUD = false,
   isBossNearCenterHUD = false,
   isTouchDevice = false,
+  onHudBoundsChange,
   onTogglePause,
   onToggleMute,
   onOpenSettings,
@@ -84,6 +95,51 @@ export const HUD: React.FC<HUDProps> = ({
   const [isHoveredLeft, setIsHoveredLeft] = React.useState(false);
   const [isHoveredRight, setIsHoveredRight] = React.useState(false);
   
+  const leftRef = React.useRef<HTMLDivElement>(null);
+  const rightRef = React.useRef<HTMLDivElement>(null);
+  const centerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!onHudBoundsChange) return;
+
+    const updateBounds = () => {
+      const getRect = (el: HTMLElement | null): HudRect | null => {
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        };
+      };
+
+      onHudBoundsChange({
+        left: getRect(leftRef.current),
+        right: getRect(rightRef.current),
+        center: getRect(centerRef.current),
+      });
+    };
+
+    updateBounds();
+
+    const resizeObserver = new ResizeObserver(updateBounds);
+    if (leftRef.current) resizeObserver.observe(leftRef.current);
+    if (rightRef.current) resizeObserver.observe(rightRef.current);
+    if (centerRef.current) resizeObserver.observe(centerRef.current);
+
+    window.addEventListener('resize', updateBounds);
+    window.visualViewport?.addEventListener('resize', updateBounds);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateBounds);
+      window.visualViewport?.removeEventListener('resize', updateBounds);
+    };
+  }, [onHudBoundsChange, score, hullPower, activePowerups]); // Dependencies that might change dimensions
+
   const shouldFadeLeft = isShipNearLeftHUD || isBossNearLeftHUD;
   const isFadedLeft = isTouchDevice 
     ? shouldFadeLeft 
@@ -107,6 +163,7 @@ export const HUD: React.FC<HUDProps> = ({
       }>
         {/* Left Stats Panel */}
         <div
+          ref={leftRef}
           onMouseEnter={() => setIsHoveredLeft(true)}
           onMouseLeave={() => setIsHoveredLeft(false)}
           className={`bg-[#0A0F19]/85 border border-[#30363D]/60 rounded-lg pointer-events-auto shadow-lg transition-all duration-300 ${
@@ -214,7 +271,7 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* Center Active Powerups Status Badges */}
-        <div className={`hidden sm:flex flex-col items-center gap-1.5 transition-all duration-300 ${
+        <div ref={centerRef} className={`hidden sm:flex flex-col items-center gap-1.5 transition-all duration-300 ${
           isFadedCenter ? 'opacity-20' : 'opacity-100'
         }`}>
           {activePowerups.golden !== undefined && activePowerups.golden > 0 && (
@@ -269,6 +326,7 @@ export const HUD: React.FC<HUDProps> = ({
 
         {/* Right Actions & High Score Panel */}
         <div 
+          ref={rightRef}
           onMouseEnter={() => setIsHoveredRight(true)}
           onMouseLeave={() => setIsHoveredRight(false)}
           className={`flex flex-col items-end gap-2 pointer-events-auto transition-all duration-300 ${

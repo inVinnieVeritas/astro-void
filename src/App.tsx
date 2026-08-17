@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AsteroidsCanvas } from './components/AsteroidsCanvas';
-import { HUD } from './components/HUD';
+import { HUD, HudRect } from './components/HUD';
 import { TouchControls } from './components/TouchControls';
 import { SettingsModal } from './components/SettingsModal';
 import { LeaderboardModal } from './components/LeaderboardModal';
@@ -56,6 +56,7 @@ export default function App() {
   const [isBossNearRightHud, setIsBossNearRightHud] = useState(false);
   const [isShipNearCenterHud, setIsShipNearCenterHud] = useState(false);
   const [isBossNearCenterHud, setIsBossNearCenterHud] = useState(false);
+  const [hudBounds, setHudBounds] = useState<{left: HudRect | null, right: HudRect | null, center: HudRect | null}>({ left: null, right: null, center: null });
 
   const [gameStarted, setGameStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -592,6 +593,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         onHyperspaceCooldownUpdate={setHyperspaceCooldown}
         onHullPowerUpdate={setHullPower}
         onActivePowerupsUpdate={setActivePowerups}
+        hudBounds={hudBounds}
         onHudProximityUpdate={(isShipNearL, isBossNearL, isShipNearR, isBossNearR, isShipNearC, isBossNearC) => {
           setIsShipNearLeftHud(isShipNearL);
           setIsBossNearLeftHud(isBossNearL || false);
@@ -648,6 +650,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         isShipNearCenterHUD={isShipNearCenterHud}
         isBossNearCenterHUD={isBossNearCenterHud}
         isTouchDevice={isTouchDevice}
+        onHudBoundsChange={setHudBounds}
         onTogglePause={() => setIsPaused((p) => !p)}
         onToggleMute={handleToggleMute}
         onOpenSettings={() => setShowSettings(true)}

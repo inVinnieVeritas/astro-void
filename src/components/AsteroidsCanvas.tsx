@@ -19,6 +19,7 @@ import {
   RunStatsSnapshot
 } from '../types';
 import { soundEngine } from '../audio/soundEngine';
+import { HudRect } from './HUD';
 
 const MOBILE_TARGET_MAX_TURN_RATE = 0.11;
 const MOBILE_TARGET_SNAP_ANGLE = 0.025;
@@ -221,6 +222,7 @@ interface AsteroidsCanvasProps {
   onHyperspaceCooldownUpdate: (cooldown: number) => void;
   onHullPowerUpdate?: (hull: number, maxHull: number) => void;
   onActivePowerupsUpdate: (powerups: any) => void;
+  hudBounds: { left: HudRect | null, right: HudRect | null, center: HudRect | null };
   onHudProximityUpdate?: (isNearLeft: boolean, isBossNearLeft: boolean, isNearRight: boolean, isBossNearRight: boolean, isNearCenter: boolean, isBossNearCenter: boolean) => void;
   onGameOver: (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => void;
   onStatsRecord: (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number, maxCombo: number, bossDamageDealt: number) => void;
@@ -258,6 +260,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   onHyperspaceCooldownUpdate,
   onHullPowerUpdate,
   onActivePowerupsUpdate,
+  hudBounds,
   onHudProximityUpdate,
   onGameOver,
   onStatsRecord,
@@ -302,6 +305,11 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     };
   }, []);
 
+
+  const hudBoundsRef = useRef(hudBounds);
+  useEffect(() => {
+    hudBoundsRef.current = hudBounds;
+  }, [hudBounds]);
 
   // Stable callbacks ref to prevent effect re-triggering & unwanted resets
   const callbacksRef = useRef({
@@ -3113,68 +3121,59 @@ bossScale: currentBossScale,
 
         // 1. SHIP CONTROLS & PHYSICS
         
-        // Check fly-over occlusion / proximity to top HUD areas
+        // Check fly-over occlusion / proximity to top HUD areas using actual DOM bounds
         const cWidth = canvasRef.current?.width || window.innerWidth;
-        const leftZoneW = isTouchDevice ? cWidth : 320;
-        const leftZoneH_start = isTouchDevice ? 60 : 0;
-        const leftZoneH_end = isTouchDevice ? 180 : 260;
-        const leftZoneX_start = 0;
-        const leftZoneX_end = leftZoneW;
-
-        const rightZoneW = isTouchDevice ? cWidth : 300;
-        const rightZoneH_start = 0;
-        const rightZoneH_end = isTouchDevice ? 60 : 150;
-        const rightZoneX_start = isTouchDevice ? 0 : cWidth - 300;
-        const rightZoneX_end = cWidth;
+        const cHeight = canvasRef.current?.height || window.innerHeight;
+        const canvasRect = canvasRef.current?.getBoundingClientRect();
         
-        // Center zone for iPad/Desktop active powerup badges
-        const centerZoneH_start = 0;
-        const centerZoneH_end = 100;
-        const centerZoneX_start = cWidth / 2 - 150;
-        const centerZoneX_end = cWidth / 2 + 150;
-
-        // Player collision with left and right HUD zones
-        const isNearLeftHud = ship.alive && 
-          ship.x > leftZoneX_start && ship.x < leftZoneX_end && 
-          ship.y > leftZoneH_start && ship.y < leftZoneH_end;
-          
-        const isNearRightHud = ship.alive && 
-          ship.x > rightZoneX_start && ship.x < rightZoneX_end && 
-          ship.y > rightZoneH_start && ship.y < rightZoneH_end;
-          
-        const isNearCenterHud = ship.alive &&
-          ship.x > centerZoneX_start && ship.x < centerZoneX_end &&
-          ship.y > centerZoneH_start && ship.y < centerZoneH_end;
-        
+        let isNearLeftHud = false;
+        let isNearRightHud = false;
+        let isNearCenterHud = false;
         let isBossNearLeftHud = false;
         let isBossNearRightHud = false;
         let isBossNearCenterHud = false;
-        
-        for (let i = 0; i < ufosRef.current.length; i++) {
-          const ufo = ufosRef.current[i];
-          if (ufo.bossScale) {
-            // Use approximate visual bounds + buffer to fade BEFORE boss is under HUD
-            const leftBound = ufo.x - (ufo.radius + 40);
-            const rightBound = ufo.x + (ufo.radius + 40);
-            const topBound = ufo.y - (ufo.radius + 40);
-            const bottomBound = ufo.y + (ufo.radius + 40);
+
+        if (canvasRect) {
+          const scaleX = canvasRect.width / cWidth;
+          const scaleY = canvasRect.height / cHeight;
+          const bounds = hudBoundsRef.current;
+
+          const checkCircleRectOverlap = (x: number, y: number, radius: number, rect: HudRect | null, padding: number = 0) => {
+            if (!rect) return false;
             
-            // Check intersection with Left Zone
-            if (leftBound < leftZoneX_end && rightBound > leftZoneX_start && 
-                topBound < leftZoneH_end && bottomBound > leftZoneH_start) {
-              isBossNearLeftHud = true;
-            }
-            
-            // Check intersection with Right Zone
-            if (leftBound < rightZoneX_end && rightBound > rightZoneX_start && 
-                topBound < rightZoneH_end && bottomBound > rightZoneH_start) {
-              isBossNearRightHud = true;
-            }
-            
-            // Check intersection with Center Zone
-            if (leftBound < centerZoneX_end && rightBound > centerZoneX_start &&
-                topBound < centerZoneH_end && bottomBound > centerZoneH_start) {
-              isBossNearCenterHud = true;
+            const screenX = canvasRect.left + x * scaleX;
+            const screenY = canvasRect.top + y * scaleY;
+            const screenRadius = radius * Math.max(scaleX, scaleY) + padding;
+
+            const closestX = Math.max(rect.left, Math.min(screenX, rect.right));
+            const closestY = Math.max(rect.top, Math.min(screenY, rect.bottom));
+
+            const distanceX = screenX - closestX;
+            const distanceY = screenY - closestY;
+
+            return (distanceX * distanceX) + (distanceY * distanceY) < (screenRadius * screenRadius);
+          };
+
+          // Player collision with real HUD bounds (15px CSS padding for early fade)
+          if (ship.alive) {
+            isNearLeftHud = checkCircleRectOverlap(ship.x, ship.y, ship.radius, bounds.left, 15);
+            isNearRightHud = checkCircleRectOverlap(ship.x, ship.y, ship.radius, bounds.right, 15);
+            isNearCenterHud = checkCircleRectOverlap(ship.x, ship.y, ship.radius, bounds.center, 15);
+          }
+          
+          for (let i = 0; i < ufosRef.current.length; i++) {
+            const ufo = ufosRef.current[i];
+            if (ufo.bossScale) {
+              // Boss collision (30px CSS padding for early fade)
+              if (!isBossNearLeftHud && checkCircleRectOverlap(ufo.x, ufo.y, ufo.radius, bounds.left, 30)) {
+                isBossNearLeftHud = true;
+              }
+              if (!isBossNearRightHud && checkCircleRectOverlap(ufo.x, ufo.y, ufo.radius, bounds.right, 30)) {
+                isBossNearRightHud = true;
+              }
+              if (!isBossNearCenterHud && checkCircleRectOverlap(ufo.x, ufo.y, ufo.radius, bounds.center, 30)) {
+                isBossNearCenterHud = true;
+              }
             }
           }
         }
