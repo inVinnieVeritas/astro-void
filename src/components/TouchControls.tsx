@@ -192,7 +192,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           onPointerUp={onPointerUpOrCancel}
           onPointerCancel={onPointerUpOrCancel}
           onLostPointerCapture={onLostPointerCapture}
-          className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 flex items-center justify-center transition-colors touch-none shadow-2xl backdrop-blur-md ${
+          className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 flex items-center justify-center transition-colors touch-none shadow-2xl ${
             isJoystickActive
               ? 'bg-[#161B22]/90 border-[#00e5ff] shadow-[0_0_25px_rgba(0,229,255,0.5)] scale-105'
               : 'bg-[#0D1117]/80 border-[#38bdf8]/60 shadow-[0_0_15px_rgba(0,0,0,0.5)]'
@@ -219,7 +219,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             <div className="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-white/80 shadow-[0_0_6px_#ffffff]" />
           </div>
         </div>
-        <div className="text-[9px] sm:text-[10px] font-mono font-bold text-[#38bdf8] tracking-wider px-2 py-0.5 bg-[#0D1117]/80 rounded border border-[#38bdf8]/30 shadow-sm backdrop-blur-sm">
+        <div className="text-[9px] sm:text-[10px] font-mono font-bold text-[#38bdf8] tracking-wider px-2 py-0.5 bg-[#0D1117]/80 rounded border border-[#38bdf8]/30 shadow-sm">
           JOYSTICK STEER / THRUST
         </div>
       </div>
@@ -233,7 +233,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             onTouchStart={(e) => { e.preventDefault(); if (!isPaused) onEMP(); }}
             onClick={() => { if (!isPaused) onEMP(); }}
             disabled={empCount <= 0 || isPaused}
-            className={`flex flex-col items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl border transition-all active:scale-95 shadow-lg backdrop-blur-md ${
+            className={`flex flex-col items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl border transition-all active:scale-95 shadow-lg ${
               empCount > 0
                 ? 'bg-[#0D1117]/90 border-[#D29922] text-[#D29922] shadow-[0_0_12px_rgba(210,153,34,0.3)]'
                 : 'bg-[#161B22]/40 border-[#30363D] text-[#8B949E] opacity-50'
@@ -249,7 +249,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
             onTouchStart={(e) => { e.preventDefault(); if (!isPaused) onHyperspace(); }}
             onClick={() => { if (!isPaused) onHyperspace(); }}
             disabled={!hyperspaceReady || isPaused}
-            className={`flex flex-col items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl border transition-all active:scale-95 shadow-lg backdrop-blur-md ${
+            className={`flex flex-col items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl border transition-all active:scale-95 shadow-lg ${
               hyperspaceReady
                 ? 'bg-[#0D1117]/90 border-[#58A6FF] text-[#58A6FF] shadow-[0_0_12px_rgba(88,166,255,0.3)]'
                 : 'bg-[#161B22]/40 border-[#30363D] text-[#8B949E] opacity-50'
@@ -270,7 +270,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           onMouseUp={stopContinuousFire}
           onMouseLeave={stopContinuousFire}
           disabled={isPaused}
-          className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-[#F85149]/50 to-[#b91c1c]/80 active:from-[#F85149] active:to-[#ef4444] border-2 border-[#ff7b72] rounded-full flex flex-col items-center justify-center text-white backdrop-blur-md shadow-[0_0_25px_rgba(248,81,73,0.4)] active:scale-95 transition-transform"
+          className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-[#F85149]/50 to-[#b91c1c]/80 active:from-[#F85149] active:to-[#ef4444] border-2 border-[#ff7b72] rounded-full flex flex-col items-center justify-center text-white shadow-[0_0_25px_rgba(248,81,73,0.4)] active:scale-95 transition-transform"
           aria-label="Fire Weapon"
         >
           <Target className="w-9 h-9 text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.8)]" />

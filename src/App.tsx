@@ -8,10 +8,13 @@ import { AchievementsModal } from './components/AchievementsModal';
 import { ChallengesModal } from './components/ChallengesModal';
 import { GameOverModal } from './components/GameOverModal';
 import { StartScreen } from './components/StartScreen';
+import { StartScreenSpaceArt } from './components/StartScreenSpaceArt';
 import { soundEngine } from './audio/soundEngine';
 import { GameMode, ControlScheme, HighScoreRecord, LifetimeStats, Achievement, RunStatsSnapshot } from './types';
 
 export default function App() {
+  const showSpaceArtGallery = new URLSearchParams(window.location.search).get('art') === '1';
+
   // Game Configuration State
   const [gameMode, setGameMode] = useState<GameMode>('classic');
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -53,6 +56,7 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
   const [isNewHighScore, setIsNewHighScore] = useState(false);
   const [gameOverStats, setGameOverStats] = useState({
     asteroidsDestroyed: 0,
@@ -399,6 +403,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
     setHullPower(100);
     setActivePowerups({});
     setIsGameOver(false);
+    setShowRestartConfirm(false);
     setIsNewHighScore(false);
     setIsPaused(false);
     setGameStarted(true);
@@ -418,14 +423,48 @@ const getInitialLivesForMode = (mode: GameMode): number => {
     [gameStarted, restartGameForMode]
   );
 
-  const handleStartGame = useCallback(() => restartGameForMode(gameMode), [gameMode, restartGameForMode]);
-  const handleRestart = useCallback(() => restartGameForMode(gameMode), [gameMode, restartGameForMode]);
+  const handleStartGame = useCallback((mode: GameMode) => restartGameForMode(mode), [restartGameForMode]);
+
+  const returnToMissionSelect = useCallback(() => {
+    if (gameStarted) {
+      const abandonedRun = consumeRunStatsRef.current?.() ?? null;
+      if (abandonedRun?.isActive) {
+        handleStatsRecord(
+          abandonedRun.asteroidsDestroyed,
+          abandonedRun.ufosDestroyed,
+          abandonedRun.shotsFired,
+          abandonedRun.shotsHit,
+          abandonedRun.empUsed,
+          abandonedRun.score,
+          abandonedRun.wave,
+          abandonedRun.maxCombo,
+          abandonedRun.bossDamageDealt
+        );
+      }
+    }
+    setGameStarted(false);
+    setIsGameOver(false);
+    setShowRestartConfirm(false);
+    setIsPaused(false);
+    setScore(0);
+    setActivePowerups({});
+    setEmpCount(1);
+    setHyperspaceCooldown(0);
+    setHullPower(100);
+    // Reset joystick state handled by unmounting Canvas? Yes, gameKey increments.
+    soundEngine.stopMusic();
+    soundEngine.stopThrustSound();
+    soundEngine.stopReverseSound();
+    setGameKey((prev) => prev + 1);
+  }, [gameStarted, handleStatsRecord]);
+
 
 
 
   const handleGameOver = useCallback(
     (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => {
       setIsGameOver(true);
+      setShowRestartConfirm(false);
       setGameOverStats({
         asteroidsDestroyed: asteroidsCount,
         ufosDestroyed,
@@ -490,10 +529,25 @@ const getInitialLivesForMode = (mode: GameMode): number => {
     });
   }, []);
 
+
+  // Restart Confirm Keyboard Support
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showRestartConfirm) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setShowRestartConfirm(false);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showRestartConfirm]);
+
   // Keyboard Pause / Mute shortcuts
   useEffect(() => {
     const handleGlobalKeys = (e: KeyboardEvent) => {
-      if (!gameStarted) return;
+      if (!gameStarted || showRestartConfirm) return;
       if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
         setIsPaused((prev) => !prev);
       }
@@ -503,9 +557,13 @@ const getInitialLivesForMode = (mode: GameMode): number => {
     };
     window.addEventListener('keydown', handleGlobalKeys);
     return () => window.removeEventListener('keydown', handleGlobalKeys);
-  }, [gameStarted, handleToggleMute]);
+  }, [gameStarted, showRestartConfirm, handleToggleMute]);
 
-  const effectivePaused = isPaused || !gameStarted || showSettings || showLeaderboard || showAchievements || showChallenges;
+  const effectivePaused = isPaused || !gameStarted || showSettings || showLeaderboard || showAchievements || showChallenges || showRestartConfirm;
+
+  if (showSpaceArtGallery) {
+    return <StartScreenSpaceArt />;
+  }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0A0C10] text-[#E6EDF3] font-sans select-none">
@@ -540,7 +598,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         <StartScreen
           highScore={highScore}
           gameMode={gameMode}
-          onChangeGameMode={setGameMode}
+          onChangeGameMode={handleSettingsModeChange}
           controlScheme={controlScheme}
           onChangeControlScheme={setControlScheme}
           isMuted={isMuted}
@@ -558,7 +616,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
       {/* Retro Arcade HUD */}
       <HUD
         score={score}
-        onRestart={handleRestart}
+        onRequestRestart={() => setShowRestartConfirm(true)}
         highScore={highScore}
         wave={wave}
         lives={lives}
@@ -637,6 +695,37 @@ const getInitialLivesForMode = (mode: GameMode): number => {
       </>
       )}
 
+
+      {/* Restart Confirmation Overlay */}
+      {showRestartConfirm && gameStarted && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#07090E]/85 backdrop-blur-sm p-4 animate-fade-in pointer-events-auto">
+          <div className="relative w-full max-w-sm bg-[#0D1117] border border-[#30363D] rounded-xl shadow-2xl p-6 md:p-8 text-center text-[#E6EDF3] font-mono">
+            <h2 className="text-xl font-bold text-[#F85149] tracking-wider mb-2">RETURN TO MISSION SELECT?</h2>
+            <p className="text-sm text-[#8B949E] mb-8">Your current score and progress will be reset.</p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => setShowRestartConfirm(false)}
+                className="flex-1 py-2.5 bg-[#21262D] hover:bg-[#30363D] text-[#E6EDF3] font-bold text-xs rounded-lg transition-all border border-[#30363D]"
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRestartConfirm(false);
+                  returnToMissionSelect();
+                }}
+                className="flex-1 py-2.5 bg-[#da3633] hover:bg-[#b52a28] text-white font-bold text-xs rounded-lg transition-all"
+              >
+                CONFIRM
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Game Over Modal */}
       {isGameOver && (
         <GameOverModal
@@ -649,7 +738,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
           accuracy={gameOverStats.accuracy}
           maxCombo={gameOverStats.maxCombo}
           bossDamageDealt={gameOverStats.bossDamageDealt}
-          onRestart={handleRestart}
+          onRestart={returnToMissionSelect}
           onOpenLeaderboard={() => {
             setShowLeaderboard(true);
           }}

@@ -21,6 +21,14 @@ import {
 import { GameMode, ControlScheme } from '../types';
 import { CodexModal } from './CodexModal';
 import { Maximize, Minimize } from 'lucide-react';
+import { 
+  LargeAsteroidSVG, 
+  NormalAsteroidSVG, 
+  SpecialAsteroidSVG, 
+  GameEnemyShipSVG, 
+  PlayerShipVariantSVG,
+  GameBossDreadnoughtSVG
+} from './StartScreenSpaceArt';
 
 const MODE_SUMMARIES: Record<GameMode, string> = {
   classic: 'STANDARD ARCADE',
@@ -39,7 +47,7 @@ interface StartScreenProps {
   onChangeControlScheme: (scheme: ControlScheme) => void;
   isMuted: boolean;
   onToggleMute: () => void;
-  onStartGame: () => void;
+  onStartGame: (mode: GameMode) => void;
   onOpenLeaderboard: () => void;
   onOpenAchievements: () => void;
   onOpenChallenges: () => void;
@@ -66,10 +74,20 @@ export const StartScreen: React.FC<StartScreenProps> = ({
 }) => {
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showCodex, setShowCodex] = useState(false);
+  const [hoveredMode, setHoveredMode] = useState<GameMode | null>(null);
+
+  const isModeSelected = (mode: GameMode) => gameMode === mode;
+  const isModeHovered = (mode: GameMode) => hoveredMode === mode;
+
+  const shouldShowStrongModeState = (mode: GameMode) =>
+    hoveredMode !== null
+      ? hoveredMode === mode
+      : gameMode === mode;
 
   // Allow SPACE or ENTER to trigger Start Game (if modals aren't open)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
       if (showHowToPlay || showCodex) {
         if (e.key === 'Escape') {
           setShowHowToPlay(false);
@@ -79,17 +97,240 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       }
       if (e.key === ' ' || e.key === 'Enter') {
         e.preventDefault();
-        onStartGame();
+        onStartGame(gameMode);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onStartGame, showHowToPlay, showCodex]);
+  }, [onStartGame, gameMode, showHowToPlay, showCodex]);
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#07090E]/85 backdrop-blur-md p-4 sm:p-6 overflow-y-auto">
-      {/* Main Responsive Glass Card */}
-      <div className="relative w-full max-w-[840px] bg-[#0D1117]/90 border border-[#30363D] rounded-2xl sm:rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] p-6 sm:p-8 md:p-10 text-[#E6EDF3] flex flex-col items-center text-center my-auto transition-all">
+        {/* Decorative Outer Space Grid */}
+        <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+          {/* Starfield */}
+          <svg className="absolute inset-0 w-full h-full opacity-70">
+            {[...Array(120)].map((_, i) => (
+              <circle 
+                key={i}
+                cx={`${(i * 71) % 100}%`} 
+                cy={`${(i * 97) % 100}%`} 
+                r={i % 3 === 0 ? 1.5 : i % 5 === 0 ? 1 : 0.5} 
+                fill={i % 4 === 0 ? "#58A6FF" : "#FFFFFF"}
+                opacity={0.15 + (i % 5) * 0.15}
+              />
+            ))}
+          </svg>
+  
+          {/* CSS Background Grid */}
+          <div 
+            className="absolute inset-0 opacity-[0.05]"
+            style={{
+              backgroundImage: `
+                linear-gradient(to right, #00A0FF 1px, transparent 1px),
+                linear-gradient(to bottom, #00A0FF 1px, transparent 1px)
+              `,
+              backgroundSize: '48px 48px'
+            }}
+          />
+
+          {/* ATMOSPHERIC NEBULA / DARK MATTER */}
+          {/* Teal/Cyan haze on top-left */}
+          <div className="absolute -top-[20%] -left-[10%] w-[70vw] h-[70vw] bg-[#00A0FF]/15 blur-[120px] rounded-full mix-blend-screen" />
+          {/* Violet/Magenta haze on bottom-right */}
+          <div className="absolute -bottom-[20%] -right-[10%] w-[80vw] h-[80vw] bg-[#A371F7]/15 blur-[140px] rounded-full mix-blend-screen" />
+          
+          {/* DARK MATTER / VOID ANOMALY (Lower-right / Right) */}
+          {/* Faint cyan/magenta fringe */}
+          <div className="absolute bottom-[-10%] -right-[20%] w-[90vw] h-[75vw] bg-gradient-to-r from-[#4C1D95]/25 to-[#00A0FF]/5 blur-[120px] rounded-[60%_40%_50%_70%] mix-blend-multiply" />
+          {/* Deep blue-black / purple interior with violet halo */}
+          <div className="absolute bottom-[0%] -right-[15%] w-[80vw] h-[60vw] bg-gradient-to-br from-[#160B2E]/90 via-[#0B0618]/95 to-[#4C1D95]/35 blur-[100px] rounded-[40%_60%_70%_50%] rotate-6 mix-blend-multiply" />
+          {/* Near-black centre */}
+          <div className="absolute bottom-[5%] -right-[10%] w-[60vw] h-[45vw] bg-[#020207] blur-[100px] rounded-[50%_70%_40%_60%] -rotate-6 mix-blend-multiply opacity-95" />
+
+          {/* DEEP BACKGROUND DREADNOUGHT BOSS */}
+          {/* Placed inside the void region, emerging from darkness */}
+          <div className="absolute bottom-[2%] md:bottom-[5%] -right-[12%] md:-right-[8%] w-[280px] h-[280px] md:w-[520px] md:h-[520px] opacity-[0.20] -rotate-12 hidden sm:block">
+             <GameBossDreadnoughtSVG className="w-full h-full" />
+          </div>
+
+          {/* APPROVED OUTER ASSETS */}
+          
+          {/* NEAR: Large Asteroid (Desktop & Tablet & Mobile) */}
+          <div className="absolute top-0 left-0 -translate-x-[35%] -translate-y-[20%] w-[220px] h-[220px] md:w-[360px] md:h-[360px] opacity-[0.38] rotate-[75deg]">
+            <LargeAsteroidSVG className="w-full h-full" />
+          </div>
+
+          {/* MID-DISTANCE: 1 Normal Asteroid (Tablet & Desktop only) */}
+          <div className="absolute bottom-0 left-0 -translate-x-[20%] translate-y-[15%] w-[160px] h-[160px] md:w-[240px] md:h-[240px] opacity-[0.28] -rotate-45 hidden sm:block">
+            <NormalAsteroidSVG className="w-full h-full" />
+          </div>
+          
+          {/* FAR DISTANCE: Smaller Normal Asteroid (Desktop only) */}
+          <div className="absolute bottom-[25%] left-[4%] w-[80px] h-[80px] md:w-[100px] md:h-[100px] opacity-[0.12] rotate-[110deg] hidden lg:block">
+            <NormalAsteroidSVG className="w-full h-full" />
+          </div>
+
+          {/* NEAR/MID: Game Enemy Ship 1 (Desktop & Tablet & Mobile) */}
+          <div className="absolute -top-[2%] right-0 translate-x-[35%] md:translate-x-[25%] w-[250px] h-[125px] md:w-[380px] md:h-[190px] opacity-[0.20] rotate-[155deg]">
+            <GameEnemyShipSVG className="w-full h-full" />
+          </div>
+
+          {/* FAR DISTANCE: Game Enemy Ship 2 (Desktop only) */}
+          <div className="absolute bottom-[2%] right-0 translate-x-[20%] w-[150px] h-[75px] md:w-[220px] md:h-[110px] opacity-[0.14] -rotate-12 hidden lg:block">
+            <GameEnemyShipSVG className="w-full h-full" />
+          </div>
+
+          {/* FAR DISTANCE: Player Ship (Tablet & Desktop) */}
+          <div className="absolute top-[35%] left-[2%] w-[60px] h-[60px] md:w-[80px] md:h-[80px] opacity-[0.18] rotate-[65deg] hidden sm:block">
+            <PlayerShipVariantSVG className="w-full h-full" />
+          </div>
+
+          {/* FAR DISTANCE: Special Asteroid (Desktop only) */}
+          <div className="absolute top-[25%] right-[2%] w-[70px] h-[70px] md:w-[90px] md:h-[90px] opacity-[0.15] rotate-45 hidden lg:block">
+            <SpecialAsteroidSVG className="w-full h-full" />
+          </div>
+          
+        </div>
+
+      {/* Main Responsive Glass Card - Now a Cockpit Viewport */}
+      <div className="relative z-10 w-full max-w-[840px] bg-[#0D1117]/80 border border-[#30363D] rounded-2xl sm:rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] p-6 sm:p-8 md:p-10 text-[#E6EDF3] flex flex-col items-center text-center my-auto transition-all overflow-hidden">
+        
+        {/* INTERNAL COCKPIT SCENE (Z-0) */}
+        <div className="absolute inset-0 z-0 pointer-events-none bg-[#080B10]">
+          {/* Starfield */}
+          <svg className="absolute inset-0 w-full h-full opacity-60">
+            {[...Array(80)].map((_, i) => (
+              <circle 
+                key={i}
+                cx={`${(i * 83) % 100}%`} 
+                cy={`${(i * 137) % 100}%`} 
+                r={i % 3 === 0 ? 1.5 : i % 5 === 0 ? 1 : 0.5} 
+                fill={i % 5 === 0 ? "#58A6FF" : "#FFFFFF"}
+                opacity={0.25 + (i % 5) * 0.15}
+              />
+            ))}
+          </svg>
+
+          {/* Inner Grid */}
+          <div 
+            className="absolute inset-0 opacity-[0.08]"
+            style={{
+              backgroundImage: `
+                linear-gradient(to right, #00A0FF 1px, transparent 1px),
+                linear-gradient(to bottom, #00A0FF 1px, transparent 1px)
+              `,
+              backgroundSize: '48px 48px'
+            }}
+          />
+
+          {/* Large Left Asteroid */}
+          <div className="absolute top-[15%] left-[-2%] w-[400px] h-[400px] opacity-[0.55] -rotate-[15deg]">
+            <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+              <polygon points="15,25 35,5 75,10 95,45 80,85 45,95 10,75 5,45" fill="none" stroke="#00A0FF" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+              <polyline points="15,25 45,50 75,10" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+              <polyline points="45,50 95,45" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+              <polyline points="45,50 80,85" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+              <polyline points="45,50 10,75" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+              <circle cx="35" cy="35" r="8" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+              <circle cx="65" cy="65" r="12" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+            </svg>
+          </div>
+
+          {/* Medium Asteroid (Mid-Right/Lower) */}
+          <div className="absolute bottom-[10%] right-[3%] w-[250px] h-[250px] opacity-[0.50] rotate-[35deg] hidden sm:block">
+            <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+              <polygon points="20,20 60,10 90,40 70,85 30,90 10,60" fill="none" stroke="#00A0FF" strokeWidth="1.2" vectorEffect="non-scaling-stroke"/>
+              <polyline points="20,20 50,55 90,40" fill="none" stroke="#00A0FF" strokeWidth="0.6" vectorEffect="non-scaling-stroke"/>
+              <polyline points="50,55 70,85" fill="none" stroke="#00A0FF" strokeWidth="0.6" vectorEffect="non-scaling-stroke"/>
+              <polyline points="50,55 10,60" fill="none" stroke="#00A0FF" strokeWidth="0.6" vectorEffect="non-scaling-stroke"/>
+              <circle cx="45" cy="70" r="10" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+            </svg>
+          </div>
+
+          {/* Smaller Asteroid (Upper Mid) */}
+          <div className="absolute top-[15%] left-[45%] w-[120px] h-[120px] opacity-[0.40] rotate-[75deg] hidden lg:block">
+            <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+              <polygon points="30,10 70,20 85,60 60,90 20,80 10,40" fill="none" stroke="#00A0FF" strokeWidth="1.5" vectorEffect="non-scaling-stroke"/>
+              <polyline points="30,10 50,50 85,60" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+              <polyline points="50,50 60,90" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+              <polyline points="50,50 10,40" fill="none" stroke="#00A0FF" strokeWidth="0.5" vectorEffect="non-scaling-stroke"/>
+            </svg>
+          </div>
+
+          {/* Enemy 1: Mothership/Boss (Upper Right) */}
+          <div className="absolute top-[8%] right-[10%] w-[240px] h-[240px] opacity-[0.60] rotate-[15deg] hidden sm:block">
+            <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_0_10px_rgba(255,0,85,0.5)]" preserveAspectRatio="xMidYMid meet">
+              <polygon points="50,10 85,30 85,70 50,90 15,70 15,30" fill="none" stroke="#ff0055" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+              <polygon points="50,25 70,40 70,60 50,75 30,60 30,40" fill="none" stroke="#ff0055" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+              <circle cx="50" cy="50" r="8" fill="none" stroke="#ff0055" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+              <line x1="50" y1="10" x2="50" y2="25" stroke="#ff0055" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+              <line x1="85" y1="30" x2="70" y2="40" stroke="#ff0055" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+              <line x1="85" y1="70" x2="70" y2="60" stroke="#ff0055" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+              <line x1="50" y1="90" x2="50" y2="75" stroke="#ff0055" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+              <line x1="15" y1="70" x2="30" y2="60" stroke="#ff0055" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+              <line x1="15" y1="30" x2="30" y2="40" stroke="#ff0055" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+            </svg>
+          </div>
+
+          {/* Enemy 2: Hunter (Right Middle) */}
+          <div className="absolute top-[40%] right-[8%] w-[100px] h-[100px] opacity-[0.65] -rotate-[40deg] hidden md:block">
+            <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_0_8px_rgba(255,153,0,0.6)]" preserveAspectRatio="xMidYMid meet">
+               <polygon points="50,10 90,80 50,65 10,80" fill="none" stroke="#FF9900" strokeWidth="2.5" vectorEffect="non-scaling-stroke"/>
+               <polyline points="50,10 50,65" fill="none" stroke="#FF9900" strokeWidth="1.5" vectorEffect="non-scaling-stroke"/>
+               <circle cx="50" cy="55" r="5" fill="none" stroke="#FF9900" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+            </svg>
+          </div>
+
+          {/* Enemy 3: Swarmer (Distant Left) */}
+          <div className="absolute top-[30%] left-[25%] w-[60px] h-[60px] opacity-[0.50] rotate-[55deg] hidden lg:block">
+            <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+               <polygon points="50,15 85,50 50,85 15,50" fill="none" stroke="#00FF66" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+               <circle cx="50" cy="50" r="10" fill="none" stroke="#00FF66" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+               <line x1="50" y1="15" x2="50" y2="85" stroke="#00FF66" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+               <line x1="15" y1="50" x2="85" y2="50" stroke="#00FF66" strokeWidth="1" vectorEffect="non-scaling-stroke"/>
+            </svg>
+          </div>
+
+          {/* Vector Debris Fragments */}
+          <div className="absolute top-[35%] left-[30%] w-[20px] h-[20px] opacity-[0.40] rotate-[110deg]">
+            <svg viewBox="0 0 100 100" className="w-full h-full"><polyline points="10,10 40,30 20,60" fill="none" stroke="#00A0FF" strokeWidth="1.5"/></svg>
+          </div>
+          <div className="absolute top-[65%] right-[15%] w-[15px] h-[15px] opacity-[0.45] rotate-[45deg]">
+            <svg viewBox="0 0 100 100" className="w-full h-full"><polygon points="20,20 80,40 50,80" fill="none" stroke="#FF9900" strokeWidth="1.5"/></svg>
+          </div>
+          <div className="absolute top-[20%] right-[40%] w-[25px] h-[25px] opacity-[0.35] rotate-[-30deg]">
+            <svg viewBox="0 0 100 100" className="w-full h-full"><polyline points="50,10 80,50 10,90" fill="none" stroke="#00A0FF" strokeWidth="1"/></svg>
+          </div>
+
+          {/* Player Ship (Right-middle, flying into combat) */}
+          <div className="absolute bottom-[18%] right-[22%] w-[85px] h-[85px] opacity-[0.70] -rotate-[18deg] hidden sm:block">
+            <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_0_15px_rgba(0,240,255,0.8)]" preserveAspectRatio="xMidYMid meet">
+              <polygon points="50,10 90,90 50,75 10,90" fill="none" stroke="#00F0FF" strokeWidth="3" vectorEffect="non-scaling-stroke"/>
+              <polyline points="50,10 50,75" fill="none" stroke="#00F0FF" strokeWidth="1.5" vectorEffect="non-scaling-stroke"/>
+              {/* Thrust trail */}
+              <polygon points="35,85 65,85 50,110" fill="none" stroke="#00A0FF" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+              <polygon points="42,85 58,85 50,100" fill="#00A0FF" opacity="0.6"/>
+            </svg>
+          </div>
+
+          {/* Mobile Fallback Objects: 1 Asteroid, 1 Enemy Ship */}
+          <div className="absolute top-[5%] right-[2%] w-[120px] h-[120px] opacity-[0.60] rotate-[15deg] sm:hidden">
+            <svg viewBox="0 0 100 100" className="w-full h-full drop-shadow-[0_0_10px_rgba(255,0,85,0.5)]" preserveAspectRatio="xMidYMid meet">
+              <polygon points="50,10 85,30 85,70 50,90 15,70 15,30" fill="none" stroke="#ff0055" strokeWidth="2" vectorEffect="non-scaling-stroke"/>
+              <circle cx="50" cy="50" r="15" fill="none" stroke="#ff0055" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+            </svg>
+          </div>
+          
+          {/* Readability Gradients/Masks */}
+          {/* Lighter Center Mask for Title and Mission Cards */}
+          <div className="absolute inset-0 opacity-70" style={{ backgroundImage: 'radial-gradient(ellipse at center, #080B10 35%, transparent 80%)' }} />
+          {/* Lower/Lighter Bottom Mask for Buttons */}
+          <div className="absolute bottom-0 left-0 right-0 h-[35%] bg-gradient-to-t from-[#080B10] via-[#080B10]/70 to-transparent opacity-85" />
+        </div>
+
+        {/* UI CONTENT (Z-10) */}
+        <div className="relative z-10 w-full flex flex-col items-center">
         
         {/* Retro Header Badge */}
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#1F6FEB]/15 border border-[#1F6FEB]/40 text-[#58A6FF] text-xs font-mono font-bold tracking-widest uppercase mb-4 shadow-sm">
@@ -110,7 +351,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               SELECT MISSION MODE
             </span>
             <span className="text-[11px] font-mono text-[#58A6FF]/80">
-              {MODE_SUMMARIES[gameMode]}
+              {MODE_SUMMARIES[hoveredMode ?? gameMode]}
             </span>
           </div>
           
@@ -120,20 +361,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('classic')}
+              onMouseEnter={() => setHoveredMode('classic')}
+              onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
-                gameMode === 'classic'
-                  ? 'bg-[#1F6FEB]/20 border-[#58A6FF] text-[#E6EDF3] shadow-[0_0_20px_rgba(88,166,255,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#58A6FF]/50'
-                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+                shouldShowStrongModeState('classic')
+                  ? isModeSelected('classic')
+                    ? 'bg-[#1F6FEB]/20 border-[#58A6FF] text-[#E6EDF3] shadow-[0_0_20px_rgba(88,166,255,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#58A6FF]/50'
+                    : 'bg-[#1F6FEB]/10 border-[#58A6FF] text-[#E6EDF3] shadow-[0_0_15px_rgba(88,166,255,0.15)] scale-[1.01] opacity-90 lg:opacity-100'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50'
               }`}
             >
               <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
-                gameMode === 'classic' ? 'text-[#58A6FF]' : 'text-[#6E7681]'
+                shouldShowStrongModeState('classic') ? 'text-[#58A6FF]' : 'text-[#6E7681]'
               }`}>
                 CLASSIC
-                {gameMode === 'classic' && <div className="w-2.5 h-2.5 rounded-full bg-[#58A6FF] shadow-[0_0_10px_#58A6FF]" />}
+                {shouldShowStrongModeState('classic') && <div className="w-2.5 h-2.5 rounded-full bg-[#58A6FF] shadow-[0_0_10px_#58A6FF]" />}
               </div>
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
-                gameMode === 'classic' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+                shouldShowStrongModeState('classic') ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
                 3 Lives • Progressive Waves • Powerups & UFOs
               </div>
@@ -144,20 +389,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('survival')}
+              onMouseEnter={() => setHoveredMode('survival')}
+              onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
-                gameMode === 'survival'
-                  ? 'bg-[#D29922]/20 border-[#D29922] text-[#E6EDF3] shadow-[0_0_20px_rgba(210,153,34,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#D29922]/50'
-                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+                shouldShowStrongModeState('survival')
+                  ? isModeSelected('survival')
+                    ? 'bg-[#D29922]/20 border-[#D29922] text-[#E6EDF3] shadow-[0_0_20px_rgba(210,153,34,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#D29922]/50'
+                    : 'bg-[#D29922]/10 border-[#D29922] text-[#E6EDF3] shadow-[0_0_15px_rgba(210,153,34,0.15)] scale-[1.01] opacity-90 lg:opacity-100'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50'
               }`}
             >
               <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
-                gameMode === 'survival' ? 'text-[#D29922]' : 'text-[#6E7681]'
+                shouldShowStrongModeState('survival') ? 'text-[#D29922]' : 'text-[#6E7681]'
               }`}>
                 SURVIVAL
-                {gameMode === 'survival' && <div className="w-2.5 h-2.5 rounded-full bg-[#D29922] shadow-[0_0_10px_#D29922]" />}
+                {shouldShowStrongModeState('survival') && <div className="w-2.5 h-2.5 rounded-full bg-[#D29922] shadow-[0_0_10px_#D29922]" />}
               </div>
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
-                gameMode === 'survival' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+                shouldShowStrongModeState('survival') ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
                 1 Ship • No Extra Lives • Endless Wave Progression
               </div>
@@ -168,20 +417,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('zen')}
+              onMouseEnter={() => setHoveredMode('zen')}
+              onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
-                gameMode === 'zen'
-                  ? 'bg-[#3FB950]/20 border-[#3FB950] text-[#E6EDF3] shadow-[0_0_20px_rgba(63,185,80,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#3FB950]/50'
-                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+                shouldShowStrongModeState('zen')
+                  ? isModeSelected('zen')
+                    ? 'bg-[#3FB950]/20 border-[#3FB950] text-[#E6EDF3] shadow-[0_0_20px_rgba(63,185,80,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#3FB950]/50'
+                    : 'bg-[#3FB950]/10 border-[#3FB950] text-[#E6EDF3] shadow-[0_0_15px_rgba(63,185,80,0.15)] scale-[1.01] opacity-90 lg:opacity-100'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50'
               }`}
             >
               <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
-                gameMode === 'zen' ? 'text-[#3FB950]' : 'text-[#6E7681]'
+                shouldShowStrongModeState('zen') ? 'text-[#3FB950]' : 'text-[#6E7681]'
               }`}>
                 ZEN VOID
-                {gameMode === 'zen' && <div className="w-2.5 h-2.5 rounded-full bg-[#3FB950] shadow-[0_0_10px_#3FB950]" />}
+                {shouldShowStrongModeState('zen') && <div className="w-2.5 h-2.5 rounded-full bg-[#3FB950] shadow-[0_0_10px_#3FB950]" />}
               </div>
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
-                gameMode === 'zen' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+                shouldShowStrongModeState('zen') ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
                 Invincible Flight • Practice Mode • Rewards Disabled
               </div>
@@ -192,20 +445,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('boss_rush')}
+              onMouseEnter={() => setHoveredMode('boss_rush')}
+              onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
-                gameMode === 'boss_rush'
-                  ? 'bg-[#F85149]/20 border-[#F85149] text-[#E6EDF3] shadow-[0_0_20px_rgba(248,81,73,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#F85149]/50'
-                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+                shouldShowStrongModeState('boss_rush')
+                  ? isModeSelected('boss_rush')
+                    ? 'bg-[#F85149]/20 border-[#F85149] text-[#E6EDF3] shadow-[0_0_20px_rgba(248,81,73,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#F85149]/50'
+                    : 'bg-[#F85149]/10 border-[#F85149] text-[#E6EDF3] shadow-[0_0_15px_rgba(248,81,73,0.15)] scale-[1.01] opacity-90 lg:opacity-100'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50'
               }`}
             >
               <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
-                gameMode === 'boss_rush' ? 'text-[#F85149]' : 'text-[#6E7681]'
+                shouldShowStrongModeState('boss_rush') ? 'text-[#F85149]' : 'text-[#6E7681]'
               }`}>
                 WAVE 5 BOSS
-                {gameMode === 'boss_rush' && <div className="w-2.5 h-2.5 rounded-full bg-[#F85149] shadow-[0_0_10px_#F85149]" />}
+                {shouldShowStrongModeState('boss_rush') && <div className="w-2.5 h-2.5 rounded-full bg-[#F85149] shadow-[0_0_10px_#F85149]" />}
               </div>
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
-                gameMode === 'boss_rush' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+                shouldShowStrongModeState('boss_rush') ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
                 Start at Wave 5 vs Dreadnought • Practice • Rewards Disabled
               </div>
@@ -216,20 +473,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('wave_10_boss')}
+              onMouseEnter={() => setHoveredMode('wave_10_boss')}
+              onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
-                gameMode === 'wave_10_boss'
-                  ? 'bg-[#A371F7]/20 border-[#A371F7] text-[#E6EDF3] shadow-[0_0_20px_rgba(163,113,247,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#A371F7]/50'
-                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+                shouldShowStrongModeState('wave_10_boss')
+                  ? isModeSelected('wave_10_boss')
+                    ? 'bg-[#A371F7]/20 border-[#A371F7] text-[#E6EDF3] shadow-[0_0_20px_rgba(163,113,247,0.25)] scale-[1.02] opacity-100 ring-1 ring-[#A371F7]/50'
+                    : 'bg-[#A371F7]/10 border-[#A371F7] text-[#E6EDF3] shadow-[0_0_15px_rgba(163,113,247,0.15)] scale-[1.01] opacity-90 lg:opacity-100'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50'
               }`}
             >
               <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
-                gameMode === 'wave_10_boss' ? 'text-[#A371F7]' : 'text-[#6E7681]'
+                shouldShowStrongModeState('wave_10_boss') ? 'text-[#A371F7]' : 'text-[#6E7681]'
               }`}>
                 CORE SEVERANCE
-                {gameMode === 'wave_10_boss' && <div className="w-2.5 h-2.5 rounded-full bg-[#A371F7] shadow-[0_0_10px_#A371F7]" />}
+                {shouldShowStrongModeState('wave_10_boss') && <div className="w-2.5 h-2.5 rounded-full bg-[#A371F7] shadow-[0_0_10px_#A371F7]" />}
               </div>
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
-                gameMode === 'wave_10_boss' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+                shouldShowStrongModeState('wave_10_boss') ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
                 Start at Wave 10 vs Core Severance • Practice • Rewards Disabled
               </div>
@@ -240,20 +501,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('wave_15_boss')}
+              onMouseEnter={() => setHoveredMode('wave_15_boss')}
+              onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
-                gameMode === 'wave_15_boss'
-                  ? 'bg-gradient-to-r from-[#00ffff]/20 to-[#ff00ff]/20 border-[#00ffff] text-[#E6EDF3] shadow-[0_0_20px_rgba(0,255,255,0.3)] scale-[1.02] opacity-100 ring-1 ring-[#00ffff]/50'
-                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50 hover:opacity-80 hover:border-[#30363D] hover:text-[#8B949E]'
+                shouldShowStrongModeState('wave_15_boss')
+                  ? isModeSelected('wave_15_boss')
+                    ? 'bg-gradient-to-r from-[#00ffff]/20 to-[#ff00ff]/20 border-[#00ffff] text-[#E6EDF3] shadow-[0_0_20px_rgba(0,255,255,0.3)] scale-[1.02] opacity-100 ring-1 ring-[#00ffff]/50'
+                    : 'bg-[#00ffff]/10 border-[#00ffff] text-[#E6EDF3] shadow-[0_0_15px_rgba(0,255,255,0.15)] scale-[1.01] opacity-90 lg:opacity-100'
+                  : 'bg-[#161B22]/50 border-[#21262D] text-[#484F58] opacity-50'
               }`}
             >
               <div className={`font-mono font-bold text-sm sm:text-base flex items-center justify-between ${
-                gameMode === 'wave_15_boss' ? 'text-[#00ffff]' : 'text-[#6E7681]'
+                shouldShowStrongModeState('wave_15_boss') ? 'text-[#00ffff]' : 'text-[#6E7681]'
               }`}>
                 THE GRID ARCHITECT
-                {gameMode === 'wave_15_boss' && <div className="w-2.5 h-2.5 rounded-full bg-[#ff00ff] shadow-[0_0_10px_#ff00ff]" />}
+                {shouldShowStrongModeState('wave_15_boss') && <div className="w-2.5 h-2.5 rounded-full bg-[#00ffff] shadow-[0_0_10px_#ff00ff]" />}
               </div>
               <div className={`text-[11px] font-mono mt-1.5 leading-snug ${
-                gameMode === 'wave_15_boss' ? 'text-[#C9D1D9]' : 'text-[#484F58]'
+                shouldShowStrongModeState('wave_15_boss') ? 'text-[#C9D1D9]' : 'text-[#484F58]'
               }`}>
                 Start at Wave 15 vs Grid Architect • Practice • Rewards Disabled
               </div>
@@ -265,7 +530,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         <button
           type="button"
           tabIndex={-1}
-          onClick={onStartGame}
+          onClick={() => onStartGame(gameMode)}
           className="w-full sm:w-auto min-w-[280px] sm:min-w-[340px] py-4 sm:py-5 px-8 sm:px-10 rounded-2xl bg-gradient-to-r from-[#238636] via-[#2EA043] to-[#3FB950] hover:from-[#2EA043] hover:to-[#4ade80] text-[#FFFFFF] font-mono font-extrabold text-xl sm:text-2xl tracking-widest uppercase shadow-[0_0_35px_rgba(46,160,67,0.5)] hover:shadow-[0_0_50px_rgba(46,160,67,0.7)] transition-all transform hover:scale-[1.03] active:scale-[0.98] flex items-center justify-center gap-3 my-2 cursor-pointer"
         >
           <Play className="w-6 h-6 sm:w-7 sm:h-7 fill-current text-white" />
@@ -363,6 +628,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             {isFullscreen ? <Minimize className="w-4 h-4 text-[#E6EDF3]" /> : <Maximize className="w-4 h-4 text-[#E6EDF3]" />}
             FULLSCREEN
           </button>
+        </div>
         </div>
       </div>
 

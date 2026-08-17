@@ -31,14 +31,10 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   // Support keyboard restart without using mouse
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.key === ' ' ||
-        e.key === 'Enter' ||
-        e.key === 'w' ||
-        e.key === 'W' ||
-        e.key === 'ArrowUp'
-      ) {
+      if (e.repeat) return;
+      if (e.key === 'Enter') {
         e.preventDefault();
+        e.stopPropagation();
         onRestart();
       }
     };
@@ -131,14 +127,16 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         {/* Buttons */}
         <div className="flex flex-col gap-2.5">
           <button
+            type="button"
             onClick={onRestart}
             className="w-full py-3 bg-[#238636] hover:bg-[#2ea043] active:scale-98 text-white font-extrabold text-sm rounded-lg transition-all border border-[#2ea043]/50 flex items-center justify-center gap-2 shadow-lg shadow-[#238636]/20"
           >
             <RotateCcw className="w-4 h-4" />
-            <span>PLAY AGAIN</span>
+            <span>MISSION SELECT</span>
           </button>
 
           <button
+            type="button"
             onClick={onOpenLeaderboard}
             className="w-full py-2.5 bg-[#21262D] hover:bg-[#30363D] border border-[#30363D] text-[#E6EDF3] font-bold text-xs rounded-lg transition-all flex items-center justify-center gap-2"
           >
@@ -148,7 +146,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         </div>
 
         <div className="text-[10px] text-[#8B949E] mt-4">
-          Press <kbd className="px-1.5 py-0.5 bg-[#21262D] rounded text-[#E6EDF3] border border-[#30363D]">SPACE</kbd> or <kbd className="px-1.5 py-0.5 bg-[#21262D] rounded text-[#E6EDF3] border border-[#30363D]">ENTER</kbd> to launch new run
+          Press <kbd className="px-1.5 py-0.5 bg-[#21262D] rounded text-[#E6EDF3] border border-[#30363D]">ENTER</kbd> to return to mission select
         </div>
       </div>
     </div>

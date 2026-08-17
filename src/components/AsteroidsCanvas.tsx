@@ -331,11 +331,21 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     };
   });
 
+  const resolvedInitialWave =
+    initialWave ??
+    (gameMode === 'wave_15_boss'
+      ? 15
+      : gameMode === 'wave_10_boss'
+      ? 10
+      : gameMode === 'boss_rush'
+      ? 5
+      : 1);
+
   // State refs for animation loop
   const gameStateRef = useRef({
     score: 0,
     nextExtraLifeScore: 100000,
-    wave: initialWave || (gameMode === 'boss_rush' ? 5 : 1),
+    wave: resolvedInitialWave,
     lives: initialLives,
     empCount: 1,
     hyperspaceCooldown: 0,
@@ -2734,7 +2744,9 @@ bossScale: currentBossScale,
         ufosRef.current.some(u => u.type === 'technoking' && u.health > 0) && 
         !gameStateRef.current.gridArchitectContinueUsed
       ) {
+        gameStateRef.current.gridArchitectContinueUsed = true;
         gameStateRef.current.gameRunning = false;
+        gameStateRef.current.keys = {};
         cancelScheduledEvents();
         setShowContinueOffer(true);
         return;
@@ -2867,7 +2879,7 @@ bossScale: currentBossScale,
   useEffect(() => {
     if (!isInitializedRef.current) {
       centerShip();
-      spawnWave(gameStateRef.current.wave);
+      spawnWave(resolvedInitialWave);
       isInitializedRef.current = true;
     }
   }, []);
@@ -9860,7 +9872,13 @@ bossScale: currentBossScale,
                <button
                  onClick={() => {
                    setShowContinueOffer(false);
-                   gameStateRef.current.gridArchitectContinueUsed = true;
+                   gameStateRef.current.keys = {};
+                   if (shipRef.current) {
+                     shipRef.current.thrust = { x: 0, y: 0 };
+                     shipRef.current.rotation = 0;
+                     shipRef.current.thrusting = false;
+                     shipRef.current.reverse = false;
+                   }
                    gameStateRef.current.lives = 3;
                    callbacksRef.current.onLivesUpdate(3);
                    clearJoystickInput();
@@ -9871,8 +9889,6 @@ bossScale: currentBossScale,
                      callbacksRef.current.onHullPowerUpdate?.(shipRef.current.maxHullPower, shipRef.current.maxHullPower);
                      shipRef.current.x = window.innerWidth / 2;
                      shipRef.current.y = window.innerHeight / 2;
-                     shipRef.current.vx = 0;
-                     shipRef.current.vy = 0;
                      shipRef.current.invincibleTimer = 180; // 3 sec
                    }
                    

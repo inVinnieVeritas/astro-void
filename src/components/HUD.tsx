@@ -43,7 +43,7 @@ interface HUDProps {
   onOpenAchievements: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
-  onRestart?: () => void;
+  onRequestRestart: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -69,10 +69,10 @@ export const HUD: React.FC<HUDProps> = ({
   onOpenAchievements,
   isFullscreen,
   onToggleFullscreen,
-  onRestart
+  onRequestRestart
 }) => {
   const [isHovered, setIsHovered] = React.useState(false);
-  const isFaded = isShipNearHUD || isHovered;
+  const isFaded = !isTouchDevice && (isShipNearHUD || isHovered);
 
   return (
     <div className="absolute top-0 left-0 w-full p-3 md:p-5 pointer-events-none flex flex-col justify-between h-full z-20 select-none">
@@ -86,7 +86,7 @@ export const HUD: React.FC<HUDProps> = ({
         <div
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
-          className={`bg-[#0A0F19]/40 backdrop-blur-sm border border-[#30363D]/60 rounded-lg pointer-events-auto shadow-lg transition-all duration-300 ${
+          className={`bg-[#0A0F19]/85 border border-[#30363D]/60 rounded-lg pointer-events-auto shadow-lg transition-all duration-300 ${
             isTouchDevice ? 'w-full p-2 self-start' : 'p-3 min-w-[170px]'
           } ${
             isFaded ? 'opacity-20 hover:opacity-100' : 'opacity-100'
@@ -193,49 +193,49 @@ export const HUD: React.FC<HUDProps> = ({
         {/* Center Active Powerups Status Badges */}
         <div className="hidden sm:flex flex-col items-center gap-1.5">
           {activePowerups.golden !== undefined && activePowerups.golden > 0 && (
-            <div className="bg-[#161B22]/95 border border-[#D29922] text-[#D29922] text-xs font-mono font-bold px-3 py-1 rounded-md backdrop-blur-md flex items-center gap-2 shadow-md">
+            <div className="bg-[#161B22]/95 border border-[#D29922] text-[#D29922] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md">
               <Sparkles className="w-3.5 h-3.5 text-[#D29922]" />
               <span>GOLDEN CORE ({Math.ceil(activePowerups.golden / 60)}s)</span>
             </div>
           )}
           {activePowerups.shield !== undefined && activePowerups.shield > 0 && (
-            <div className="bg-[#161B22]/95 border border-[#58A6FF] text-[#58A6FF] text-xs font-mono font-bold px-3 py-1 rounded-md backdrop-blur-md flex items-center gap-2 shadow-md">
+            <div className="bg-[#161B22]/95 border border-[#58A6FF] text-[#58A6FF] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md">
               <Shield className="w-3.5 h-3.5 text-[#58A6FF]" />
               <span>Force Shield ({Math.ceil(activePowerups.shield / 60)}s)</span>
             </div>
           )}
           {activePowerups.tripleShot !== undefined && activePowerups.tripleShot > 0 && (
-            <div className="bg-[#161B22]/95 border border-[#3FB950] text-[#3FB950] text-xs font-mono font-bold px-3 py-1 rounded-md backdrop-blur-md flex items-center gap-2 shadow-md">
+            <div className="bg-[#161B22]/95 border border-[#3FB950] text-[#3FB950] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md">
               <Zap className="w-3.5 h-3.5 text-[#3FB950]" />
               <span>Triple Shot ({Math.ceil(activePowerups.tripleShot / 60)}s)</span>
             </div>
           )}
           {activePowerups.laser !== undefined && activePowerups.laser > 0 && (
-            <div className="bg-[#161B22]/95 border border-[#F85149] text-[#F85149] text-xs font-mono font-bold px-3 py-1 rounded-md backdrop-blur-md flex items-center gap-2 shadow-md">
+            <div className="bg-[#161B22]/95 border border-[#F85149] text-[#F85149] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md">
               <Target className="w-3.5 h-3.5 text-[#F85149]" />
               <span>Laser Beam ({Math.ceil(activePowerups.laser / 60)}s)</span>
             </div>
           )}
           {activePowerups.drone !== undefined && activePowerups.drone > 0 && (
-            <div className="bg-[#161B22]/95 border border-[#A371F7] text-[#A371F7] text-xs font-mono font-bold px-3 py-1 rounded-md backdrop-blur-md flex items-center gap-2 shadow-md">
+            <div className="bg-[#161B22]/95 border border-[#A371F7] text-[#A371F7] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md">
               <Sparkles className="w-3.5 h-3.5 text-[#A371F7]" />
               <span>Defense Drone ({Math.ceil(activePowerups.drone / 60)}s)</span>
             </div>
           )}
           {activePowerups.magnet !== undefined && activePowerups.magnet > 0 && (
-            <div className="bg-[#161B22]/95 border border-[#00E5FF] text-[#00E5FF] text-xs font-mono font-bold px-3 py-1 rounded-md backdrop-blur-md flex items-center gap-2 shadow-md">
+            <div className="bg-[#161B22]/95 border border-[#00E5FF] text-[#00E5FF] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md">
               <Zap className="w-3.5 h-3.5 text-[#00E5FF]" />
               <span>Gravity Magnet ({Math.ceil(activePowerups.magnet / 60)}s)</span>
             </div>
           )}
           {activePowerups.timewarp !== undefined && activePowerups.timewarp > 0 && (
-            <div className="bg-[#161B22]/95 border border-[#38bdf8] text-[#38bdf8] text-xs font-mono font-bold px-3 py-1 rounded-md backdrop-blur-md flex items-center gap-2 shadow-md animate-pulse">
+            <div className="bg-[#161B22]/95 border border-[#38bdf8] text-[#38bdf8] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md animate-pulse">
               <Sparkles className="w-3.5 h-3.5 text-[#38bdf8]" />
               <span>Chrono Stasis ({Math.ceil(activePowerups.timewarp / 60)}s)</span>
             </div>
           )}
           {activePowerups.repulsor !== undefined && activePowerups.repulsor > 0 && (
-            <div className="bg-[#161B22]/95 border border-[#39ff14] text-[#39ff14] text-xs font-mono font-bold px-3 py-1 rounded-md backdrop-blur-md flex items-center gap-2 shadow-md">
+            <div className="bg-[#161B22]/95 border border-[#39ff14] text-[#39ff14] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md">
               <Shield className="w-3.5 h-3.5 text-[#39ff14]" />
               <span>Kinetic Repulsor ({Math.ceil(activePowerups.repulsor / 60)}s)</span>
             </div>
@@ -247,7 +247,7 @@ export const HUD: React.FC<HUDProps> = ({
           isTouchDevice ? 'self-end w-full' : ''
         }`}>
           {/* Action Toolbar */}
-          <div className="flex items-center gap-1.5 bg-[#0D1117]/90 backdrop-blur-md border border-[#30363D] rounded-lg p-1 shadow-md">
+          <div className="flex items-center gap-1.5 bg-[#0D1117]/90 border border-[#30363D] rounded-lg p-1 shadow-md">
             <button
               tabIndex={-1}
               onFocus={(e) => e.currentTarget.blur()}
@@ -289,22 +289,15 @@ export const HUD: React.FC<HUDProps> = ({
               {isPaused ? <Play className="w-4 h-4 text-[#58A6FF]" /> : <Pause className="w-4 h-4" />}
             </button>
             <button
-              tabIndex={-1}
-              onFocus={(e) => e.currentTarget.blur()}
-              onClick={(e) => {
-                e.currentTarget.blur();
-                if (onRestart) {
-                  if (window.confirm('Restart the current run? Your current score and progress will be reset.')) {
-                    onRestart();
-                  }
-                }
-              }}
+              type="button"
+              onClick={onRequestRestart}
               className="p-1.5 text-[#8B949E] hover:text-[#F85149] hover:bg-[#21262D] rounded transition-colors outline-none"
-              title="Restart Game"
-              aria-label="Restart game"
+              title="Return to mission select"
+              aria-label="Return to mission select"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
+
             <button
               tabIndex={-1}
               onFocus={(e) => e.currentTarget.blur()}
@@ -348,7 +341,7 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
 
           {/* High Score Badge */}
-          <div className="bg-[#0D1117]/90 backdrop-blur-md border border-[#30363D] rounded-lg px-3 py-1.5 text-right shadow-md">
+          <div className="bg-[#0D1117]/90 border border-[#30363D] rounded-lg px-3 py-1.5 text-right shadow-md">
             <div className="text-[10px] font-mono font-bold text-[#D29922] tracking-wider">HIGH SCORE</div>
             <div className="text-sm font-bold text-[#E6EDF3] font-mono mt-0.5">{highScore.toLocaleString()}</div>
           </div>
@@ -363,7 +356,7 @@ export const HUD: React.FC<HUDProps> = ({
             {/* EMP Bomb Card */}
             <div
               onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'e' }))}
-              className={`flex flex-col gap-1 bg-[#0D1117]/90 backdrop-blur-md border rounded-lg p-2 min-w-[140px] sm:min-w-[170px] transition-all cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98] ${
+              className={`flex flex-col gap-1 bg-[#0D1117]/90 border rounded-lg p-2 min-w-[140px] sm:min-w-[170px] transition-all cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98] ${
                 empCount > 0
                   ? 'border-[#D29922]/80 shadow-[0_0_8px_rgba(210,153,34,0.2)]'
                   : 'border-[#30363D]'
@@ -418,7 +411,7 @@ export const HUD: React.FC<HUDProps> = ({
             {/* Hyperspace Warp Status Card */}
             <div
               onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'r' }))}
-              className={`flex flex-col gap-1 bg-[#0D1117]/90 backdrop-blur-md border rounded-lg p-2 min-w-[140px] sm:min-w-[170px] transition-all cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98] ${
+              className={`flex flex-col gap-1 bg-[#0D1117]/90 border rounded-lg p-2 min-w-[140px] sm:min-w-[170px] transition-all cursor-pointer shadow-md hover:scale-[1.02] active:scale-[0.98] ${
                 hyperspaceCooldown <= 0
                   ? 'border-[#58A6FF]/80 shadow-[0_0_8px_rgba(88,166,255,0.2)]'
                   : 'border-[#30363D]'
@@ -460,7 +453,7 @@ export const HUD: React.FC<HUDProps> = ({
 
         {/* Compact Desktop Controls Guide */}
         {!isTouchDevice && (
-          <div className="hidden lg:block text-right bg-[#0D1117]/80 backdrop-blur-sm border border-[#30363D] rounded-lg px-2.5 py-1.5 text-[9.5px] font-mono text-[#8B949E] shadow-sm">
+          <div className="hidden lg:block text-right bg-[#0D1117]/85 border border-[#30363D] rounded-lg px-2.5 py-1.5 text-[9.5px] font-mono text-[#8B949E] shadow-sm">
             <span className="text-[#E6EDF3] font-bold mr-2">🚀 CONTROLS:</span>
             <span className="mr-2">• <span className="text-[#38BDF8]">Move</span> WASD/Arrows</span>
             <span className="mr-2">• <span className="text-[#3FB950]">Fire</span> Space/Click</span>
