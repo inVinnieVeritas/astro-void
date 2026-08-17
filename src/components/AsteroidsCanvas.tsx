@@ -221,7 +221,7 @@ interface AsteroidsCanvasProps {
   onHyperspaceCooldownUpdate: (cooldown: number) => void;
   onHullPowerUpdate?: (hull: number, maxHull: number) => void;
   onActivePowerupsUpdate: (powerups: any) => void;
-  onHudProximityUpdate?: (isNear: boolean) => void;
+  onHudProximityUpdate?: (isNear: boolean, isBossNear?: boolean) => void;
   onGameOver: (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => void;
   onStatsRecord: (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number, maxCombo: number, bossDamageDealt: number) => void;
   onUnlockAchievement: (id: string) => void;
@@ -272,6 +272,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   const dreadnoughtGapBonusRecordedRef = useRef<WeakSet<Bullet>>(new WeakSet());
   const isInitializedRef = useRef(false);
   const isNearHudRef = useRef(false);
+  const isBossNearHudRef = useRef(false);
   const bossEncounteredRef = useRef(false);
   const architectHitFeedbackNextMsRef = useRef(0);
   const architectHitTextNextMsRef = useRef(0);
@@ -3107,15 +3108,33 @@ bossScale: currentBossScale,
         const isInsideNebula = isShipInNebulaRef.current;
 
         // 1. SHIP CONTROLS & PHYSICS
-        if (ship.alive) {
-          // Check fly-over occlusion / proximity to top-left HUD area (0..320, 0..260)
-          const isNearHud = ship.x < 320 && ship.y < 260;
-          if (isNearHud !== isNearHudRef.current) {
-            isNearHudRef.current = isNearHud;
-            if (callbacksRef.current.onHudProximityUpdate) {
-              callbacksRef.current.onHudProximityUpdate(isNearHud);
+        
+        // Check fly-over occlusion / proximity to top HUD area
+        const hudZoneW = isTouchDevice ? (canvasRef.current?.width || window.innerWidth) : 320;
+        const hudZoneH = 260; // Approximate height of the HUD block
+        const isNearHud = ship.alive && ship.x < hudZoneW && ship.y < hudZoneH;
+        
+        let isBossNearHud = false;
+        for (let i = 0; i < ufosRef.current.length; i++) {
+          const ufo = ufosRef.current[i];
+          if (ufo.bossScale) {
+            // Use approximate visual bounds + buffer to fade BEFORE boss is under HUD
+            if ((ufo.x - (ufo.radius + 40)) < hudZoneW && (ufo.y - (ufo.radius + 40)) < hudZoneH) {
+              isBossNearHud = true;
+              break;
             }
           }
+        }
+        
+        if (isNearHud !== isNearHudRef.current || isBossNearHud !== isBossNearHudRef.current) {
+          isNearHudRef.current = isNearHud;
+          isBossNearHudRef.current = isBossNearHud;
+          if (callbacksRef.current.onHudProximityUpdate) {
+            callbacksRef.current.onHudProximityUpdate(isNearHud, isBossNearHud);
+          }
+        }
+
+        if (ship.alive) {
 
           // Decrement frozen timer if ship is frozen by Cryo Asteroid
           if (ship.frozenTimer > 0) {

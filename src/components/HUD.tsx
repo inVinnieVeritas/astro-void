@@ -35,6 +35,7 @@ interface HUDProps {
   isPaused: boolean;
   isMuted: boolean;
   isShipNearHUD?: boolean;
+  isBossNearHUD?: boolean;
   isTouchDevice?: boolean;
   onTogglePause: () => void;
   onToggleMute: () => void;
@@ -61,6 +62,7 @@ export const HUD: React.FC<HUDProps> = ({
   isPaused,
   isMuted,
   isShipNearHUD = false,
+  isBossNearHUD = false,
   isTouchDevice = false,
   onTogglePause,
   onToggleMute,
@@ -72,7 +74,11 @@ export const HUD: React.FC<HUDProps> = ({
   onRequestRestart
 }) => {
   const [isHovered, setIsHovered] = React.useState(false);
-  const isFaded = !isTouchDevice && (isShipNearHUD || isHovered);
+  
+  const shouldFadeForGameplay = isShipNearHUD || isBossNearHUD;
+  const isFaded = isTouchDevice 
+    ? shouldFadeForGameplay 
+    : (shouldFadeForGameplay || isHovered);
 
   return (
     <div className="absolute top-0 left-0 w-full p-3 md:p-5 pointer-events-none flex flex-col justify-between h-full z-20 select-none">

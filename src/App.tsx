@@ -51,6 +51,7 @@ export default function App() {
   const [maxHullPower] = useState(100);
   const [activePowerups, setActivePowerups] = useState<any>({});
   const [isShipNearHud, setIsShipNearHud] = useState(false);
+  const [isBossNearHud, setIsBossNearHud] = useState(false);
 
   const [gameStarted, setGameStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -587,7 +588,10 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         onHyperspaceCooldownUpdate={setHyperspaceCooldown}
         onHullPowerUpdate={setHullPower}
         onActivePowerupsUpdate={setActivePowerups}
-        onHudProximityUpdate={setIsShipNearHud}
+        onHudProximityUpdate={(isShipNear, isBossNear) => {
+          setIsShipNearHud(isShipNear);
+          setIsBossNearHud(isBossNear || false);
+        }}
         onGameOver={handleGameOver}
         onStatsRecord={handleStatsRecord}
         onUnlockAchievement={unlockAchievement}
@@ -630,6 +634,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         isPaused={isPaused}
         isMuted={isMuted}
         isShipNearHUD={isShipNearHud}
+        isBossNearHUD={isBossNearHud}
         isTouchDevice={isTouchDevice}
         onTogglePause={() => setIsPaused((p) => !p)}
         onToggleMute={handleToggleMute}
