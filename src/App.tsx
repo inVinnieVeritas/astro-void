@@ -50,8 +50,12 @@ export default function App() {
   const [hullPower, setHullPower] = useState(100);
   const [maxHullPower] = useState(100);
   const [activePowerups, setActivePowerups] = useState<any>({});
-  const [isShipNearHud, setIsShipNearHud] = useState(false);
-  const [isBossNearHud, setIsBossNearHud] = useState(false);
+  const [isShipNearLeftHud, setIsShipNearLeftHud] = useState(false);
+  const [isBossNearLeftHud, setIsBossNearLeftHud] = useState(false);
+  const [isShipNearRightHud, setIsShipNearRightHud] = useState(false);
+  const [isBossNearRightHud, setIsBossNearRightHud] = useState(false);
+  const [isShipNearCenterHud, setIsShipNearCenterHud] = useState(false);
+  const [isBossNearCenterHud, setIsBossNearCenterHud] = useState(false);
 
   const [gameStarted, setGameStarted] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -588,9 +592,13 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         onHyperspaceCooldownUpdate={setHyperspaceCooldown}
         onHullPowerUpdate={setHullPower}
         onActivePowerupsUpdate={setActivePowerups}
-        onHudProximityUpdate={(isShipNear, isBossNear) => {
-          setIsShipNearHud(isShipNear);
-          setIsBossNearHud(isBossNear || false);
+        onHudProximityUpdate={(isShipNearL, isBossNearL, isShipNearR, isBossNearR, isShipNearC, isBossNearC) => {
+          setIsShipNearLeftHud(isShipNearL);
+          setIsBossNearLeftHud(isBossNearL || false);
+          setIsShipNearRightHud(isShipNearR || false);
+          setIsBossNearRightHud(isBossNearR || false);
+          setIsShipNearCenterHud(isShipNearC || false);
+          setIsBossNearCenterHud(isBossNearC || false);
         }}
         onGameOver={handleGameOver}
         onStatsRecord={handleStatsRecord}
@@ -633,8 +641,12 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         activePowerups={activePowerups}
         isPaused={isPaused}
         isMuted={isMuted}
-        isShipNearHUD={isShipNearHud}
-        isBossNearHUD={isBossNearHud}
+        isShipNearLeftHUD={isShipNearLeftHud}
+        isBossNearLeftHUD={isBossNearLeftHud}
+        isShipNearRightHUD={isShipNearRightHud}
+        isBossNearRightHUD={isBossNearRightHud}
+        isShipNearCenterHUD={isShipNearCenterHud}
+        isBossNearCenterHUD={isBossNearCenterHud}
         isTouchDevice={isTouchDevice}
         onTogglePause={() => setIsPaused((p) => !p)}
         onToggleMute={handleToggleMute}

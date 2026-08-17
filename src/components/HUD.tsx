@@ -34,8 +34,12 @@ interface HUDProps {
   };
   isPaused: boolean;
   isMuted: boolean;
-  isShipNearHUD?: boolean;
-  isBossNearHUD?: boolean;
+  isShipNearLeftHUD?: boolean;
+  isBossNearLeftHUD?: boolean;
+  isShipNearRightHUD?: boolean;
+  isBossNearRightHUD?: boolean;
+  isShipNearCenterHUD?: boolean;
+  isBossNearCenterHUD?: boolean;
   isTouchDevice?: boolean;
   onTogglePause: () => void;
   onToggleMute: () => void;
@@ -61,8 +65,12 @@ export const HUD: React.FC<HUDProps> = ({
   activePowerups,
   isPaused,
   isMuted,
-  isShipNearHUD = false,
-  isBossNearHUD = false,
+  isShipNearLeftHUD = false,
+  isBossNearLeftHUD = false,
+  isShipNearRightHUD = false,
+  isBossNearRightHUD = false,
+  isShipNearCenterHUD = false,
+  isBossNearCenterHUD = false,
   isTouchDevice = false,
   onTogglePause,
   onToggleMute,
@@ -73,12 +81,21 @@ export const HUD: React.FC<HUDProps> = ({
   onToggleFullscreen,
   onRequestRestart
 }) => {
-  const [isHovered, setIsHovered] = React.useState(false);
+  const [isHoveredLeft, setIsHoveredLeft] = React.useState(false);
+  const [isHoveredRight, setIsHoveredRight] = React.useState(false);
   
-  const shouldFadeForGameplay = isShipNearHUD || isBossNearHUD;
-  const isFaded = isTouchDevice 
-    ? shouldFadeForGameplay 
-    : (shouldFadeForGameplay || isHovered);
+  const shouldFadeLeft = isShipNearLeftHUD || isBossNearLeftHUD;
+  const isFadedLeft = isTouchDevice 
+    ? shouldFadeLeft 
+    : (shouldFadeLeft || isHoveredLeft);
+
+  const shouldFadeRight = isShipNearRightHUD || isBossNearRightHUD;
+  const isFadedRight = isTouchDevice 
+    ? shouldFadeRight 
+    : (shouldFadeRight || isHoveredRight);
+
+  const shouldFadeCenter = isShipNearCenterHUD || isBossNearCenterHUD;
+  const isFadedCenter = shouldFadeCenter;
 
   return (
     <div className="absolute top-0 left-0 w-full p-3 md:p-5 pointer-events-none flex flex-col justify-between h-full z-20 select-none">
@@ -90,12 +107,12 @@ export const HUD: React.FC<HUDProps> = ({
       }>
         {/* Left Stats Panel */}
         <div
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
+          onMouseEnter={() => setIsHoveredLeft(true)}
+          onMouseLeave={() => setIsHoveredLeft(false)}
           className={`bg-[#0A0F19]/85 border border-[#30363D]/60 rounded-lg pointer-events-auto shadow-lg transition-all duration-300 ${
             isTouchDevice ? 'w-full p-2 self-start' : 'p-3 min-w-[170px]'
           } ${
-            isFaded ? 'opacity-20 hover:opacity-100' : 'opacity-100'
+            isFadedLeft ? 'opacity-20 hover:opacity-100' : 'opacity-100'
           }`}
         >
           <div className="text-[10px] font-mono font-bold text-[#8B949E] tracking-widest uppercase">SCORE</div>
@@ -197,7 +214,9 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* Center Active Powerups Status Badges */}
-        <div className="hidden sm:flex flex-col items-center gap-1.5">
+        <div className={`hidden sm:flex flex-col items-center gap-1.5 transition-all duration-300 ${
+          isFadedCenter ? 'opacity-20' : 'opacity-100'
+        }`}>
           {activePowerups.golden !== undefined && activePowerups.golden > 0 && (
             <div className="bg-[#161B22]/95 border border-[#D29922] text-[#D29922] text-xs font-mono font-bold px-3 py-1 rounded-md  flex items-center gap-2 shadow-md">
               <Sparkles className="w-3.5 h-3.5 text-[#D29922]" />
@@ -249,9 +268,15 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* Right Actions & High Score Panel */}
-        <div className={`flex flex-col items-end gap-2 pointer-events-auto ${
-          isTouchDevice ? 'self-end w-full' : ''
-        }`}>
+        <div 
+          onMouseEnter={() => setIsHoveredRight(true)}
+          onMouseLeave={() => setIsHoveredRight(false)}
+          className={`flex flex-col items-end gap-2 pointer-events-auto transition-all duration-300 ${
+            isTouchDevice ? 'self-end w-full' : ''
+          } ${
+            isFadedRight ? 'opacity-20 hover:opacity-100' : 'opacity-100'
+          }`}
+        >
           {/* Action Toolbar */}
           <div className="flex items-center gap-1.5 bg-[#0D1117]/90 border border-[#30363D] rounded-lg p-1 shadow-md">
             <button

@@ -221,7 +221,7 @@ interface AsteroidsCanvasProps {
   onHyperspaceCooldownUpdate: (cooldown: number) => void;
   onHullPowerUpdate?: (hull: number, maxHull: number) => void;
   onActivePowerupsUpdate: (powerups: any) => void;
-  onHudProximityUpdate?: (isNear: boolean, isBossNear?: boolean) => void;
+  onHudProximityUpdate?: (isNearLeft: boolean, isBossNearLeft: boolean, isNearRight: boolean, isBossNearRight: boolean, isNearCenter: boolean, isBossNearCenter: boolean) => void;
   onGameOver: (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => void;
   onStatsRecord: (asteroids: number, ufos: number, shotsFired: number, shotsHit: number, empUsed: number, finalScore: number, finalWave: number, maxCombo: number, bossDamageDealt: number) => void;
   onUnlockAchievement: (id: string) => void;
@@ -271,8 +271,12 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   const dreadnoughtImpactRingNextMsRef = useRef(0);
   const dreadnoughtGapBonusRecordedRef = useRef<WeakSet<Bullet>>(new WeakSet());
   const isInitializedRef = useRef(false);
-  const isNearHudRef = useRef(false);
-  const isBossNearHudRef = useRef(false);
+  const isNearLeftHudRef = useRef(false);
+  const isBossNearLeftHudRef = useRef(false);
+  const isNearRightHudRef = useRef(false);
+  const isBossNearRightHudRef = useRef(false);
+  const isNearCenterHudRef = useRef(false);
+  const isBossNearCenterHudRef = useRef(false);
   const bossEncounteredRef = useRef(false);
   const architectHitFeedbackNextMsRef = useRef(0);
   const architectHitTextNextMsRef = useRef(0);
@@ -3109,28 +3113,87 @@ bossScale: currentBossScale,
 
         // 1. SHIP CONTROLS & PHYSICS
         
-        // Check fly-over occlusion / proximity to top HUD area
-        const hudZoneW = isTouchDevice ? (canvasRef.current?.width || window.innerWidth) : 320;
-        const hudZoneH = 260; // Approximate height of the HUD block
-        const isNearHud = ship.alive && ship.x < hudZoneW && ship.y < hudZoneH;
+        // Check fly-over occlusion / proximity to top HUD areas
+        const cWidth = canvasRef.current?.width || window.innerWidth;
+        const leftZoneW = isTouchDevice ? cWidth : 320;
+        const leftZoneH_start = isTouchDevice ? 60 : 0;
+        const leftZoneH_end = isTouchDevice ? 180 : 260;
+        const leftZoneX_start = 0;
+        const leftZoneX_end = leftZoneW;
+
+        const rightZoneW = isTouchDevice ? cWidth : 300;
+        const rightZoneH_start = 0;
+        const rightZoneH_end = isTouchDevice ? 60 : 150;
+        const rightZoneX_start = isTouchDevice ? 0 : cWidth - 300;
+        const rightZoneX_end = cWidth;
         
-        let isBossNearHud = false;
+        // Center zone for iPad/Desktop active powerup badges
+        const centerZoneH_start = 0;
+        const centerZoneH_end = 100;
+        const centerZoneX_start = cWidth / 2 - 150;
+        const centerZoneX_end = cWidth / 2 + 150;
+
+        // Player collision with left and right HUD zones
+        const isNearLeftHud = ship.alive && 
+          ship.x > leftZoneX_start && ship.x < leftZoneX_end && 
+          ship.y > leftZoneH_start && ship.y < leftZoneH_end;
+          
+        const isNearRightHud = ship.alive && 
+          ship.x > rightZoneX_start && ship.x < rightZoneX_end && 
+          ship.y > rightZoneH_start && ship.y < rightZoneH_end;
+          
+        const isNearCenterHud = ship.alive &&
+          ship.x > centerZoneX_start && ship.x < centerZoneX_end &&
+          ship.y > centerZoneH_start && ship.y < centerZoneH_end;
+        
+        let isBossNearLeftHud = false;
+        let isBossNearRightHud = false;
+        let isBossNearCenterHud = false;
+        
         for (let i = 0; i < ufosRef.current.length; i++) {
           const ufo = ufosRef.current[i];
           if (ufo.bossScale) {
             // Use approximate visual bounds + buffer to fade BEFORE boss is under HUD
-            if ((ufo.x - (ufo.radius + 40)) < hudZoneW && (ufo.y - (ufo.radius + 40)) < hudZoneH) {
-              isBossNearHud = true;
-              break;
+            const leftBound = ufo.x - (ufo.radius + 40);
+            const rightBound = ufo.x + (ufo.radius + 40);
+            const topBound = ufo.y - (ufo.radius + 40);
+            const bottomBound = ufo.y + (ufo.radius + 40);
+            
+            // Check intersection with Left Zone
+            if (leftBound < leftZoneX_end && rightBound > leftZoneX_start && 
+                topBound < leftZoneH_end && bottomBound > leftZoneH_start) {
+              isBossNearLeftHud = true;
+            }
+            
+            // Check intersection with Right Zone
+            if (leftBound < rightZoneX_end && rightBound > rightZoneX_start && 
+                topBound < rightZoneH_end && bottomBound > rightZoneH_start) {
+              isBossNearRightHud = true;
+            }
+            
+            // Check intersection with Center Zone
+            if (leftBound < centerZoneX_end && rightBound > centerZoneX_start &&
+                topBound < centerZoneH_end && bottomBound > centerZoneH_start) {
+              isBossNearCenterHud = true;
             }
           }
         }
         
-        if (isNearHud !== isNearHudRef.current || isBossNearHud !== isBossNearHudRef.current) {
-          isNearHudRef.current = isNearHud;
-          isBossNearHudRef.current = isBossNearHud;
+        if (isNearLeftHud !== isNearLeftHudRef.current || 
+            isBossNearLeftHud !== isBossNearLeftHudRef.current ||
+            isNearRightHud !== isNearRightHudRef.current ||
+            isBossNearRightHud !== isBossNearRightHudRef.current ||
+            isNearCenterHud !== isNearCenterHudRef.current ||
+            isBossNearCenterHud !== isBossNearCenterHudRef.current) {
+          isNearLeftHudRef.current = isNearLeftHud;
+          isBossNearLeftHudRef.current = isBossNearLeftHud;
+          isNearRightHudRef.current = isNearRightHud;
+          isBossNearRightHudRef.current = isBossNearRightHud;
+          isNearCenterHudRef.current = isNearCenterHud;
+          isBossNearCenterHudRef.current = isBossNearCenterHud;
+          
           if (callbacksRef.current.onHudProximityUpdate) {
-            callbacksRef.current.onHudProximityUpdate(isNearHud, isBossNearHud);
+            callbacksRef.current.onHudProximityUpdate(isNearLeftHud, isBossNearLeftHud, isNearRightHud, isBossNearRightHud, isNearCenterHud, isBossNearCenterHud);
           }
         }
 
