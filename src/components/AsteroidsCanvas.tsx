@@ -383,6 +383,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
     bossDamageDealt: 0,
     bossMinesDestroyed: 0,
     consecutiveHits: 0,
+    shieldDropLockoutTimer: 0,
     gridArchitectContinueUsed: false
   });
 
@@ -1891,7 +1892,16 @@ bossScale: currentBossScale,
   }, [screenShakeEnabled, addShockwave]);
 
   // Collectible Pickups
+  
   const spawnCollectible = useCallback((x: number, y: number, type: Collectible['type']) => {
+    if (type === 'shield') {
+      const isBossWave = gameStateRef.current.wave % 5 === 0 && gameStateRef.current.wave > 0;
+      if (!isBossWave) {
+        if ((gameStateRef.current.shieldDropLockoutTimer || 0) > 0) return;
+        if (collectiblesRef.current.some(c => c.type === 'shield')) return;
+      }
+    }
+
     collectiblesRef.current.push({
       id: Math.random().toString(),
       x,
@@ -2737,10 +2747,26 @@ bossScale: currentBossScale,
       return;
     }
 
+    
     // Hull depleted (second hit) - destroy ship!
     ship.hullPower = 0;
     gameStateRef.current.lives--;
     callbacksRef.current.onLivesUpdate(gameStateRef.current.lives);
+
+    // CHANGE: Active powerups are lost on player death
+    powerupTimersRef.current = {
+      tripleShot: 0,
+      shield: 0,
+      golden: 0,
+      laser: 0,
+      drone: 0,
+      magnet: 0,
+      timewarp: 0,
+      repulsor: 0
+    };
+    callbacksRef.current.onActivePowerupsUpdate({ ...powerupTimersRef.current });
+    dronesRef.current = []; // Remove active drone helpers
+
 
     clearJoystickInput();
     soundEngine.stopThrustSound();
@@ -2981,6 +3007,10 @@ bossScale: currentBossScale,
       // --- GAMEPLAY UPDATE (Only if not paused & running) ---
       if (!isPaused && state.gameRunning) {
         const timeFactor = pTimers.timewarp > 0 ? 0.25 : 1.0;
+
+      if (state.shieldDropLockoutTimer > 0) {
+        state.shieldDropLockoutTimer--;
+      }
 
       // Update Powerup Timers & notify parent
       let pUpdated = false;
@@ -5609,20 +5639,26 @@ bossScale: currentBossScale,
 
           // Pickup check
           if (ship.alive && Math.hypot(c.x - ship.x, c.y - ship.y) < 32) {
+            
             if (c.type === 'golden') {
               soundEngine.playSound('golden');
               pTimers.golden = 600;
               pTimers.shield = 600;
               pTimers.tripleShot = 600;
               triggerBigBanner('⚡ HYPER CRYSTAL ACTIVATED!', 'FORCE SHIELD + TRIPLE CANNON OVERDRIVE', '#ffd700', 'rgba(255, 215, 0, 0.9)', 90);
+              const isBossWave = state.wave % 5 === 0 && state.wave > 0;
+              if (!isBossWave) state.shieldDropLockoutTimer = 1500;
             } else if (c.type === 'triple') {
               soundEngine.playSound('powerup');
               pTimers.tripleShot = 720;
               addFloatingText(ship.x, ship.y - 30, 'TRIPLE SHOT!', '#00ffcc', 20);
+            
             } else if (c.type === 'shield') {
               soundEngine.playSound('powerup');
               pTimers.shield = 720;
               addFloatingText(ship.x, ship.y - 30, 'FORCE SHIELD!', '#66aaff', 20);
+              const isBossWave = state.wave % 5 === 0 && state.wave > 0;
+              if (!isBossWave) state.shieldDropLockoutTimer = 1500;
             } else if (c.type === 'emp') {
               soundEngine.playSound('powerup');
               state.empCount++;
