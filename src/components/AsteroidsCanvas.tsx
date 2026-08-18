@@ -358,6 +358,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   const gameStateRef = useRef({
     score: 0,
     nextExtraLifeScore: 100000,
+    extraLifeIncrement: 100000,
     wave: resolvedInitialWave,
     lives: initialLives,
     empCount: 1,
@@ -1006,6 +1007,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
 
     if (!state.nextExtraLifeScore) {
       state.nextExtraLifeScore = 100000;
+      state.extraLifeIncrement = 100000;
     }
 
     if (gameMode !== 'survival') {
@@ -1028,7 +1030,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
           addShockwave(ship.x, ship.y, 160, '#00ff88');
         }
 
-        state.nextExtraLifeScore += 100000;
+        state.extraLifeIncrement = (state.extraLifeIncrement || 100000) + 100000;
+        state.nextExtraLifeScore += state.extraLifeIncrement;
       }
     }
   }, [triggerBigBanner, gameMode]);
@@ -1893,12 +1896,12 @@ bossScale: currentBossScale,
 
   // Collectible Pickups
   
-  const spawnCollectible = useCallback((x: number, y: number, type: Collectible['type']) => {
-    if (type === 'shield') {
+    const spawnCollectible = useCallback((x: number, y: number, type: Collectible['type']) => {
+    if (type === 'shield' || type === 'golden') {
       const isBossWave = gameStateRef.current.wave % 5 === 0 && gameStateRef.current.wave > 0;
       if (!isBossWave) {
         if ((gameStateRef.current.shieldDropLockoutTimer || 0) > 0) return;
-        if (collectiblesRef.current.some(c => c.type === 'shield')) return;
+        if (collectiblesRef.current.some(c => c.type === 'shield' || c.type === 'golden')) return;
       }
     }
 
@@ -2100,7 +2103,7 @@ bossScale: currentBossScale,
     const a = asteroidsRef.current[index];
     if (!a) return;
 
-    if (ship && ship.alive) {
+    if (ship && ship.alive && !isRam) {
       const dist = Math.hypot(a.x - ship.x, a.y - ship.y);
       if (dist < 140) {
         const closeBonus = Math.round(150 * (1 - dist / 140)) + 50;
@@ -2111,6 +2114,7 @@ bossScale: currentBossScale,
 
     createSmallExplosion(a.x, a.y);
 
+    if (!isRam) {
     // Special & Hazard asteroid powerup drops
     if (a.type === 'triple') {
       spawnCollectible(a.x, a.y, 'triple');
@@ -2333,6 +2337,7 @@ bossScale: currentBossScale,
       addScore(150);
     }
 
+    }
     // Score points
     if (a.type === 'planetoid') addScore(300);
     else if (a.radius > 40) addScore(20);
@@ -3724,6 +3729,11 @@ bossScale: currentBossScale,
             const dist = Math.hypot(ship.x - a.x, ship.y - a.y);
             if (dist < ship.radius + a.radius * 0.85) {
               if (isShielded) {
+                if (pTimers.shield > 0) pTimers.shield = Math.max(0, pTimers.shield - 180);
+                if (pTimers.golden > 0) {
+                  pTimers.golden = Math.max(0, pTimers.golden - 180);
+                  pTimers.tripleShot = Math.max(0, pTimers.tripleShot - 180);
+                }
                 // Ramming asteroid with shield destroys & splits it as if shot
                 destroyAsteroid(i, true);
               } else {
@@ -5647,7 +5657,7 @@ bossScale: currentBossScale,
               pTimers.tripleShot = 600;
               triggerBigBanner('⚡ HYPER CRYSTAL ACTIVATED!', 'FORCE SHIELD + TRIPLE CANNON OVERDRIVE', '#ffd700', 'rgba(255, 215, 0, 0.9)', 90);
               const isBossWave = state.wave % 5 === 0 && state.wave > 0;
-              if (!isBossWave) state.shieldDropLockoutTimer = 1500;
+              if (!isBossWave) state.shieldDropLockoutTimer = 2400;
             } else if (c.type === 'triple') {
               soundEngine.playSound('powerup');
               pTimers.tripleShot = 720;
@@ -5658,7 +5668,7 @@ bossScale: currentBossScale,
               pTimers.shield = 720;
               addFloatingText(ship.x, ship.y - 30, 'FORCE SHIELD!', '#66aaff', 20);
               const isBossWave = state.wave % 5 === 0 && state.wave > 0;
-              if (!isBossWave) state.shieldDropLockoutTimer = 1500;
+              if (!isBossWave) state.shieldDropLockoutTimer = 2400;
             } else if (c.type === 'emp') {
               soundEngine.playSound('powerup');
               state.empCount++;
