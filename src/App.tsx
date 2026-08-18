@@ -463,6 +463,8 @@ const getInitialLivesForMode = (mode: GameMode): number => {
     soundEngine.stopMusic();
     soundEngine.stopThrustSound();
     soundEngine.stopReverseSound();
+    soundEngine.stopUfoAlarm();
+    soundEngine.resumeAll();
     setGameKey((prev) => prev + 1);
   }, [gameStarted, handleStatsRecord]);
 
@@ -580,7 +582,8 @@ const getInitialLivesForMode = (mode: GameMode): number => {
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#0A0C10] text-[#E6EDF3] font-sans select-none">
       {/* Main Asteroids Canvas Engine */}
-      <AsteroidsCanvas
+      {gameStarted && (
+        <AsteroidsCanvas
         consumeRunStatsRef={consumeRunStatsRef}
         isTouchDevice={isTouchDevice}
         key={gameKey}
@@ -613,6 +616,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         onStatsRecord={handleStatsRecord}
         onUnlockAchievement={unlockAchievement}
       />
+      )}
 
       {/* Start Screen Overlay */}
       {!gameStarted && (
