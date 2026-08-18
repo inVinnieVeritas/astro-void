@@ -338,13 +338,136 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           SYSTEM READY • HIGH SCORE: {highScore.toLocaleString()}
         </div>
 
-        {/* Main Title - Prominent */}
-        <h1 className="text-4xl sm:text-6xl md:text-7xl font-black font-mono tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-[#38bdf8] via-[#a855f7] to-[#ec4899] drop-shadow-[0_0_35px_rgba(56,189,248,0.5)] mb-2">
-          ASTRO VOID
-        </h1>
-        <p className="text-xs sm:text-sm md:text-base font-mono text-[#8B949E] mb-6 sm:mb-8 tracking-wide">
-          NEON VECTOR SPACE FIGHTER
-        </p>        {/* Mode Selector - 3 Modes with Active vs Dimmed Styling */}
+        {/* Main Title - Prominent Custom Vector Logo */}
+        <div className="relative w-full max-w-[266px] sm:max-w-[399px] md:max-w-[532px] mx-auto mb-2 select-none group">
+          {/* Subtle flicker/power-on effect wrapper */}
+          <div className="animate-[powerOn_0.3s_ease-out_1]">
+            <svg viewBox="0 0 600 120" className="w-full h-auto drop-shadow-[0_0_20px_rgba(56,189,248,0.35)] sm:drop-shadow-[0_0_35px_rgba(56,189,248,0.5)] overflow-visible">
+              <defs>
+                <linearGradient id="astroGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#00f0ff" />
+                  <stop offset="50%" stopColor="#3b82f6" />
+                  <stop offset="100%" stopColor="#8b5cf6" />
+                </linearGradient>
+                <linearGradient id="voidGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stopColor="#8b5cf6" />
+                  <stop offset="100%" stopColor="#ec4899" />
+                </linearGradient>
+                {/* Thin scanline pattern for inner clipping */}
+                <pattern id="scanlines" width="4" height="4" patternUnits="userSpaceOnUse">
+                  <rect width="4" height="2" fill="currentColor" fillOpacity="0.1" />
+                </pattern>
+              </defs>
+
+              <style>
+                {`
+                  @keyframes powerOn {
+                    0% { opacity: 0; filter: brightness(3) blur(10px); }
+                    30% { opacity: 0.5; filter: brightness(1) blur(0px); }
+                    40% { opacity: 0; }
+                    50% { opacity: 1; filter: brightness(2) blur(4px); }
+                    60% { opacity: 0.2; }
+                    100% { opacity: 1; filter: brightness(1) blur(0px); }
+                  }
+                  @keyframes typeOn {
+                    0% { clip-path: inset(0 100% 0 0); }
+                    100% { clip-path: inset(0 0 0 0); }
+                  }
+                  @keyframes cursorBlink {
+                    0%, 100% { opacity: 1; }
+                    50% { opacity: 0; }
+                  }
+                  .title-fill { fill: url(#astroGrad); }
+                  .title-fill-void { fill: url(#voidGrad); }
+                  .title-stroke { fill: none; stroke: url(#astroGrad); stroke-width: 1.5; opacity: 0.8; }
+                  .title-stroke-void { fill: none; stroke: url(#voidGrad); stroke-width: 1.5; opacity: 0.8; }
+                  
+                  /* Faint offset background layer for 3D/Neon pop */
+                  .title-glow-bg { fill: none; stroke: #38bdf8; stroke-width: 6; opacity: 0.15; filter: blur(4px); transform: translate(2px, 2px); }
+                  .title-glow-bg-void { fill: none; stroke: #ec4899; stroke-width: 6; opacity: 0.15; filter: blur(4px); transform: translate(2px, 2px); }
+                `}
+              </style>
+
+              <g transform="translate(10, 85)">
+                {/* A (ASTRO) - Custom extended left leg, notched crossbar */}
+                <g transform="translate(0, 0)">
+                  <path d="M 35,-80 L 60,0 L 45,0 L 38,-22 L 20,-22 L 10,0 L -5,0 L 20,-80 Z M 25,-40 L 33,-40 L 29,-58 Z" className="title-fill" />
+                  <path d="M 35,-80 L 60,0 L 45,0 L 38,-22 L 20,-22 L 10,0 L -5,0 L 20,-80 Z M 25,-40 L 33,-40 L 29,-58 Z" className="title-stroke" />
+                  {/* Decorative notch line */}
+                  <line x1="-8" y1="-10" x2="15" y2="-10" stroke="#00f0ff" strokeWidth="2" opacity="0.6" />
+                </g>
+                
+                {/* S - Crisp geometric */}
+                <g transform="translate(65, 0)">
+                  <path d="M 40,-80 L 0,-80 L 0,-35 L 30,-35 L 30,-15 L -5,-15 L -5,0 L 45,0 L 45,-50 L 15,-50 L 15,-65 L 40,-65 Z" className="title-fill" />
+                  <path d="M 40,-80 L 0,-80 L 0,-35 L 30,-35 L 30,-15 L -5,-15 L -5,0 L 45,0 L 45,-50 L 15,-50 L 15,-65 L 40,-65 Z" className="title-stroke" />
+                </g>
+
+                {/* T - Standard geometric */}
+                <g transform="translate(115, 0)">
+                  <path d="M -5,-80 L 45,-80 L 45,-65 L 28,-65 L 28,0 L 12,0 L 12,-65 L -5,-65 Z" className="title-fill" />
+                  <path d="M -5,-80 L 45,-80 L 45,-65 L 28,-65 L 28,0 L 12,0 L 12,-65 L -5,-65 Z" className="title-stroke" />
+                </g>
+
+                {/* R - Extended heavy right leg */}
+                <g transform="translate(165, 0)">
+                  <path d="M 0,-80 L 35,-80 C 45,-80 50,-75 50,-60 C 50,-48 44,-42 35,-40 L 55,0 L 35,0 L 20,-40 L 15,-40 L 15,0 L 0,0 Z M 15,-55 L 32,-55 C 34,-55 35,-56 35,-60 C 35,-64 34,-65 32,-65 L 15,-65 Z" className="title-fill" />
+                  <path d="M 0,-80 L 35,-80 C 45,-80 50,-75 50,-60 C 50,-48 44,-42 35,-40 L 55,0 L 35,0 L 20,-40 L 15,-40 L 15,0 L 0,0 Z M 15,-55 L 32,-55 C 34,-55 35,-56 35,-60 C 35,-64 34,-65 32,-65 L 15,-65 Z" className="title-stroke" />
+                </g>
+
+                {/* O - Standard geometric for ASTRO */}
+                <g transform="translate(230, 0)">
+                  <path d="M 25,-80 C 45,-80 55,-70 55,-40 C 55,-10 45,0 25,0 C 5,0 -5,-10 -5,-40 C -5,-70 5,-80 25,-80 Z M 25,-65 C 13,-65 10,-55 10,-40 C 10,-25 13,-15 25,-15 C 37,-15 40,-25 40,-40 C 40,-55 37,-65 25,-65 Z" className="title-fill" />
+                  <path d="M 25,-80 C 45,-80 55,-70 55,-40 C 55,-10 45,0 25,0 C 5,0 -5,-10 -5,-40 C -5,-70 5,-80 25,-80 Z" className="title-stroke" />
+                  <path d="M 25,-65 C 13,-65 10,-55 10,-40 C 10,-25 13,-15 25,-15 C 37,-15 40,-25 40,-40 C 40,-55 37,-65 25,-65 Z" className="title-stroke" />
+                </g>
+
+                {/* V (VOID) - Custom broken left segment */}
+                <g transform="translate(320, 0)">
+                  {/* Left broken segment */}
+                  <polygon points="0,-80 16,-80 19,-60 3,-60" className="title-fill-void" />
+                  <polygon points="5,-50 20,-50 28,0 12,0" className="title-fill-void" />
+                  {/* Right continuous segment */}
+                  <polygon points="50,-80 34,-80 22,0 38,0" className="title-fill-void" />
+                  
+                  {/* Outline overlay */}
+                  <path d="M 0,-80 L 16,-80 L 19,-60 L 3,-60 Z M 5,-50 L 20,-50 L 28,0 L 12,0 Z M 50,-80 L 34,-80 L 22,0 L 38,0 Z" className="title-stroke-void" />
+                </g>
+
+                {/* O (VOID) - Clean Custom Geometric */}
+                <g transform="translate(385, 0)">
+                  <path d="M 25,-80 C 45,-80 55,-70 55,-40 C 55,-10 45,0 25,0 C 5,0 -5,-10 -5,-40 C -5,-70 5,-80 25,-80 Z M 25,-65 C 13,-65 10,-55 10,-40 C 10,-25 13,-15 25,-15 C 37,-15 40,-25 40,-40 C 40,-55 37,-65 25,-65 Z" className="title-fill-void" />
+                  <path d="M 25,-80 C 45,-80 55,-70 55,-40 C 55,-10 45,0 25,0 C 5,0 -5,-10 -5,-40 C -5,-70 5,-80 25,-80 Z" className="title-stroke-void" />
+                  <path d="M 25,-65 C 13,-65 10,-55 10,-40 C 10,-25 13,-15 25,-15 C 37,-15 40,-25 40,-40 C 40,-55 37,-65 25,-65 Z" className="title-stroke-void" />
+                </g>
+
+                {/* I - Standard geometric */}
+                <g transform="translate(453, 0)">
+                  <rect x="0" y="-80" width="15" height="80" className="title-fill-void" />
+                  <rect x="0" y="-80" width="15" height="80" className="title-stroke-void" />
+                </g>
+
+                {/* D - Standard geometric */}
+                <g transform="translate(482, 0)">
+                  <path d="M 0,-80 L 25,-80 C 45,-80 50,-70 50,-40 C 50,-10 45,0 25,0 L 0,0 Z M 15,-65 L 15,-15 L 25,-15 C 33,-15 35,-20 35,-40 C 35,-60 33,-65 25,-65 Z" className="title-fill-void" />
+                  <path d="M 0,-80 L 25,-80 C 45,-80 50,-70 50,-40 C 50,-10 45,0 25,0 L 0,0 Z M 15,-65 L 15,-15 L 25,-15 C 33,-15 35,-20 35,-40 C 35,-60 33,-65 25,-65 Z" className="title-stroke-void" />
+                </g>
+
+                {/* Glitch Overlay Lines - spans the whole logo, but masked down visually */}
+                <line x1="-20" y1="-25" x2="570" y2="-25" stroke="#ffffff" strokeWidth="1" opacity="0.2" strokeDasharray="15 30 5 10" />
+                <line x1="-20" y1="-50" x2="570" y2="-50" stroke="#00f0ff" strokeWidth="0.5" opacity="0.3" strokeDasharray="50 100 20 10" />
+              </g>
+            </svg>
+          </div>
+        </div>
+        <div className="flex items-center justify-center mb-10 sm:mb-12 w-full select-none opacity-85">
+          <div className="font-mono text-[13px] sm:text-[15px] md:text-[16px] tracking-wide uppercase text-[#8B949E] font-bold motion-safe:animate-[typeOn_800ms_steps(35,end)_forwards] whitespace-nowrap overflow-hidden">
+            <span className="opacity-70 mr-2 sm:mr-3">&gt;</span>
+            <span>DEEP SPACE INTERCEPTOR</span>
+            <span className="mx-2 sm:mx-3 opacity-60">//</span>
+            <span className="text-[#58A6FF] opacity-100">ACTIVE<span className="animate-[cursorBlink_1s_step-end_infinite]">_</span></span>
+          </div>
+        </div>        {/* Mode Selector - 3 Modes with Active vs Dimmed Styling */}
         <div className="w-full mb-6 sm:mb-8">
           <div className="flex items-center justify-between mb-2 px-1">
             <span className="text-xs font-mono font-bold text-[#8B949E] uppercase tracking-wider">
