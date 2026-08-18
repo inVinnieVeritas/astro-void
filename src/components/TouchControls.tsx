@@ -29,6 +29,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   const joystickBaseRef = useRef<HTMLDivElement>(null);
   const joystickKnobRef = useRef<HTMLDivElement>(null);
   const activePointerIdRef = useRef<number | null>(null);
+  const activeTouchIdRef = useRef<number | null>(null);
   const [knobPos, setKnobPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isJoystickActive, setIsJoystickActive] = useState(false);
   const fireIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -77,12 +78,14 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
 
   const resetJoystickInput = useCallback(() => {
     activePointerIdRef.current = null;
+    activeTouchIdRef.current = null;
     setKnobPos({ x: 0, y: 0 });
     setIsJoystickActive(false);
     dispatchJoystick(false, 0, 0);
   }, [dispatchJoystick]);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'touch') return;
     if (isPaused || activePointerIdRef.current !== null) return;
     activePointerIdRef.current = e.pointerId;
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -90,11 +93,13 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'touch') return;
     if (isPaused || activePointerIdRef.current !== e.pointerId) return;
     handlePointerMove(e.clientX, e.clientY);
   };
 
   const onPointerUpOrCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'touch') return;
     if (activePointerIdRef.current === e.pointerId) {
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err) {}
       resetJoystickInput();
@@ -102,7 +107,49 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
   };
 
   const onLostPointerCapture = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'touch') return;
     if (activePointerIdRef.current === e.pointerId) {
+      resetJoystickInput();
+    }
+  };
+
+  
+  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isPaused || activeTouchIdRef.current !== null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const touch = e.changedTouches[i];
+      activeTouchIdRef.current = touch.identifier;
+      handlePointerMove(touch.clientX, touch.clientY);
+      break;
+    }
+  };
+
+  const onTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isPaused || activeTouchIdRef.current === null) return;
+    let touchFound = false;
+    for (let i = 0; i < e.touches.length; i++) {
+      const touch = e.touches[i];
+      if (touch.identifier === activeTouchIdRef.current) {
+        touchFound = true;
+        handlePointerMove(touch.clientX, touch.clientY);
+        break;
+      }
+    }
+    if (!touchFound) {
+      resetJoystickInput();
+    }
+  };
+
+  const onTouchEndOrCancel = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (activeTouchIdRef.current === null) return;
+    let ourTouchEnded = false;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === activeTouchIdRef.current) {
+        ourTouchEnded = true;
+        break;
+      }
+    }
+    if (ourTouchEnded) {
       resetJoystickInput();
     }
   };
@@ -189,7 +236,12 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUpOrCancel}
           onPointerCancel={onPointerUpOrCancel}
-          onLostPointerCapture={onLostPointerCapture}className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 flex items-center justify-center transition-colors touch-none shadow-2xl ${
+          onLostPointerCapture={onLostPointerCapture}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEndOrCancel}
+          onTouchCancel={onTouchEndOrCancel}
+          className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 flex items-center justify-center transition-colors touch-none shadow-2xl ${
             isJoystickActive
               ? 'bg-[#161B22]/90 border-[#00e5ff] shadow-[0_0_25px_rgba(0,229,255,0.5)] scale-105'
               : 'bg-[#0D1117]/80 border-[#38bdf8]/60 shadow-[0_0_15px_rgba(0,0,0,0.5)]'
