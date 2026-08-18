@@ -568,7 +568,10 @@ const getInitialLivesForMode = (mode: GameMode): number => {
     return () => window.removeEventListener('keydown', handleGlobalKeys);
   }, [gameStarted, showRestartConfirm, handleToggleMute]);
 
+
   const effectivePaused = isPaused || !gameStarted || showSettings || showLeaderboard || showAchievements || showChallenges || showRestartConfirm;
+  const gameplayAudioPaused = gameStarted && (isPaused || showSettings || showLeaderboard || showAchievements || showChallenges || showRestartConfirm);
+
 
   if (showSpaceArtGallery) {
     return <StartScreenSpaceArt />;
@@ -586,6 +589,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         initialLives={lives}
         controlScheme={controlScheme}
         isPaused={effectivePaused}
+        audioPaused={gameplayAudioPaused}
         crtFilter={crtFilter}
         screenShakeEnabled={screenShake}
         onScoreUpdate={setScore}

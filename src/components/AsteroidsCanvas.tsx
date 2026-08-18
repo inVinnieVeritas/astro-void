@@ -212,6 +212,7 @@ interface AsteroidsCanvasProps {
   controlScheme: ControlScheme;
   consumeRunStatsRef: React.MutableRefObject<(() => RunStatsSnapshot | null) | null>;
   isPaused: boolean;
+  audioPaused: boolean;
   crtFilter: boolean;
   screenShakeEnabled: boolean;
   onScoreUpdate: (score: number) => void;
@@ -250,6 +251,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   controlScheme,
   consumeRunStatsRef,
   isPaused,
+  audioPaused,
   crtFilter,
   screenShakeEnabled,
   onScoreUpdate,
@@ -2928,10 +2930,9 @@ bossScale: currentBossScale,
     }
   }, []);
 
-  // Sync Audio Engine Pause State
+  // Sync Simulation Pause State (Movement/Input)
   useEffect(() => {
     if (isPaused) {
-      soundEngine.pauseAll();
       // Clear held movement states
       clearJoystickInput();
       const state = gameStateRef.current;
@@ -2939,10 +2940,17 @@ bossScale: currentBossScale,
       state.pointerId = null;
       soundEngine.stopThrustSound();
       soundEngine.stopReverseSound();
+    }
+  }, [isPaused]);
+
+  // Sync Audio Engine Pause State (Global Suspend)
+  useEffect(() => {
+    if (audioPaused) {
+      soundEngine.pauseAll();
     } else {
       soundEngine.resumeAll();
     }
-  }, [isPaused]);
+  }, [audioPaused]);
 
   // Main Canvas Physics & Render Loop
   useEffect(() => {
