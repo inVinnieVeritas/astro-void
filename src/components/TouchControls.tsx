@@ -75,7 +75,7 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     }
   }, [dispatchJoystick]);
 
-  const resetJoystick = useCallback(() => {
+  const resetJoystickInput = useCallback(() => {
     activePointerIdRef.current = null;
     setKnobPos({ x: 0, y: 0 });
     setIsJoystickActive(false);
@@ -96,16 +96,14 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
 
   const onPointerUpOrCancel = (e: React.PointerEvent<HTMLDivElement>) => {
     if (activePointerIdRef.current === e.pointerId) {
-      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }
-      resetJoystick();
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch(err) {}
+      resetJoystickInput();
     }
   };
 
   const onLostPointerCapture = (e: React.PointerEvent<HTMLDivElement>) => {
     if (activePointerIdRef.current === e.pointerId) {
-      resetJoystick();
+      resetJoystickInput();
     }
   };
 
@@ -139,33 +137,39 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
         clearInterval(fireIntervalRef.current);
         fireIntervalRef.current = null;
       }
-      resetJoystick();
+      resetJoystickInput();
     }
-  }, [isPaused, resetJoystick]);
+  }, [isPaused, resetJoystickInput]);
 
   useEffect(() => {
     const handleGlobalPointerUpCancel = (e: PointerEvent) => {
       if (activePointerIdRef.current === e.pointerId) {
-        resetJoystick();
+        resetJoystickInput();
       }
     };
 
     const handleGlobalBlurHide = () => {
-      resetJoystick();
+      resetJoystickInput();
     };
     
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        resetJoystick();
+        resetJoystickInput();
       }
     };
 
     const handleCustomReset = () => {
-      resetJoystick();
+      resetJoystickInput();
+    };
+
+    const handleGlobalTouchEndCancel = (e: TouchEvent) => {
+      resetJoystickInput();
     };
 
     window.addEventListener('pointerup', handleGlobalPointerUpCancel, true);
     window.addEventListener('pointercancel', handleGlobalPointerUpCancel, true);
+    window.addEventListener('touchend', handleGlobalTouchEndCancel, true);
+    window.addEventListener('touchcancel', handleGlobalTouchEndCancel, true);
     window.addEventListener('blur', handleGlobalBlurHide);
     window.addEventListener('pagehide', handleGlobalBlurHide);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -174,12 +178,14 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
     return () => {
       window.removeEventListener('pointerup', handleGlobalPointerUpCancel, true);
       window.removeEventListener('pointercancel', handleGlobalPointerUpCancel, true);
+      window.removeEventListener('touchend', handleGlobalTouchEndCancel, true);
+      window.removeEventListener('touchcancel', handleGlobalTouchEndCancel, true);
       window.removeEventListener('blur', handleGlobalBlurHide);
       window.removeEventListener('pagehide', handleGlobalBlurHide);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('asteroids:reset-joystick', handleCustomReset);
     };
-  }, [resetJoystick]);
+  }, [resetJoystickInput]);
 
   return (
     <div className="fixed inset-0 pointer-events-none z-40 select-none overflow-hidden flex justify-between items-end p-4 sm:p-8">
@@ -192,6 +198,8 @@ export const TouchControls: React.FC<TouchControlsProps> = ({
           onPointerUp={onPointerUpOrCancel}
           onPointerCancel={onPointerUpOrCancel}
           onLostPointerCapture={onLostPointerCapture}
+          onTouchEnd={resetJoystickInput}
+          onTouchCancel={resetJoystickInput}
           className={`relative w-28 h-28 sm:w-36 sm:h-36 rounded-full border-2 flex items-center justify-center transition-colors touch-none shadow-2xl ${
             isJoystickActive
               ? 'bg-[#161B22]/90 border-[#00e5ff] shadow-[0_0_25px_rgba(0,229,255,0.5)] scale-105'

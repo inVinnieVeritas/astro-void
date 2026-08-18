@@ -383,6 +383,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
   );
 
   const restartGameForMode = useCallback((mode: GameMode) => {
+    window.dispatchEvent(new CustomEvent('asteroids:reset-joystick'));
     if (gameStarted) {
       const abandonedRun = consumeRunStatsRef.current?.() ?? null;
       if (abandonedRun?.isActive) {
@@ -432,6 +433,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
   const handleStartGame = useCallback((mode: GameMode) => restartGameForMode(mode), [restartGameForMode]);
 
   const returnToMissionSelect = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('asteroids:reset-joystick'));
     if (gameStarted) {
       const abandonedRun = consumeRunStatsRef.current?.() ?? null;
       if (abandonedRun?.isActive) {
@@ -469,6 +471,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
 
   const handleGameOver = useCallback(
     (finalScore: number, finalWave: number, asteroidsCount: number, accuracy: number, maxCombo: number, ufosDestroyed: number, bossDamageDealt: number) => {
+      window.dispatchEvent(new CustomEvent('asteroids:reset-joystick'));
       setIsGameOver(true);
       setShowRestartConfirm(false);
       setGameOverStats({
