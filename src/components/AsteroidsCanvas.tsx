@@ -9526,8 +9526,9 @@ bossScale: currentBossScale,
           alpha = (1 - progress) / 0.2;
         }
 
-        const bannerH = 100;
-        const centerY = height / 2;
+        const isTouchLandscape = (isTouchDevice || navigator.maxTouchPoints > 0) && width > height && height < 600;
+        const bannerH = isTouchLandscape ? 50 : 100;
+        const centerY = isTouchLandscape ? height * 0.25 : height / 2;
 
         // Banner fade out logic if player ship is under/near it
         let shipDistAlpha = 1;
@@ -9559,21 +9560,26 @@ bossScale: currentBossScale,
 
         // Performant vector stroke outline + fill instead of heavy canvas shadowBlur!
         ctx.strokeStyle = b.glowColor;
-        ctx.lineWidth = 6;
-        ctx.font = `900 ${Math.min(46, width * 0.055)}px font-mono, sans-serif`;
-        ctx.strokeText(b.title, 0, b.subtitle ? -14 : 0);
+        ctx.lineWidth = isTouchLandscape ? 3 : 6;
+        
+        const titleSize = isTouchLandscape ? Math.min(22, width * 0.05) : Math.min(46, width * 0.055);
+        ctx.font = `900 ${titleSize}px font-mono, sans-serif`;
+        const titleYOffset = b.subtitle ? (isTouchLandscape ? -8 : -14) : 0;
+        ctx.strokeText(b.title, 0, titleYOffset);
 
         ctx.fillStyle = b.color;
-        ctx.fillText(b.title, 0, b.subtitle ? -14 : 0);
+        ctx.fillText(b.title, 0, titleYOffset);
 
         if (b.subtitle) {
           ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
-          ctx.lineWidth = 3;
-          ctx.font = `bold ${Math.min(16, width * 0.028)}px font-mono, sans-serif`;
-          ctx.strokeText(b.subtitle, 0, 22);
+          ctx.lineWidth = isTouchLandscape ? 2 : 3;
+          const subSize = isTouchLandscape ? Math.min(11, width * 0.025) : Math.min(16, width * 0.028);
+          ctx.font = `bold ${subSize}px font-mono, sans-serif`;
+          const subYOffset = isTouchLandscape ? 12 : 22;
+          ctx.strokeText(b.subtitle, 0, subYOffset);
 
           ctx.fillStyle = '#ffffff';
-          ctx.fillText(b.subtitle, 0, 22);
+          ctx.fillText(b.subtitle, 0, subYOffset);
         }
 
         ctx.restore();
@@ -9646,17 +9652,18 @@ bossScale: currentBossScale,
       const activeBoss = ufosRef.current.find((u) => u.isBoss);
       if (activeBoss) {
         ctx.save();
-        const barW = Math.min(480, width * 0.65);
-        const barH = 14;
+        const isTouchLandscape = (isTouchDevice || navigator.maxTouchPoints > 0) && width > height && height < 600;
+        const barW = Math.min(480, width * (isTouchLandscape ? 0.45 : 0.65));
+        const barH = isTouchLandscape ? 10 : 14;
         const barX = (width - barW) / 2;
-        const barY = 32;
+        const barY = isTouchLandscape ? 8 : 32;
 
         let bossBarAlpha = 1;
         const ship = shipRef.current;
         if (ship && ship.alive) {
            const distY = Math.abs(ship.y - barY);
-           if (distY < 80) {
-              bossBarAlpha = Math.max(0.15, distY / 80);
+           if (distY < (isTouchLandscape ? 50 : 80)) {
+              bossBarAlpha = Math.max(0.15, distY / (isTouchLandscape ? 50 : 80));
            }
         }
         ctx.globalAlpha = bossBarAlpha;
@@ -9866,8 +9873,8 @@ bossScale: currentBossScale,
         ctx.restore();
       }
 
-      // Keyboard Controls Guide Overlay on game start (Desktop only)
-      if (controlsHintTimerRef.current > 0 && !isTouchDevice) {
+      // Keyboard Controls Guide Overlay on game start (Desktop only with sufficient viewport space)
+      if (controlsHintTimerRef.current > 0 && !isTouchDevice && navigator.maxTouchPoints === 0 && !window.matchMedia('(pointer: coarse)').matches && width >= 1000 && height >= 650) {
         controlsHintTimerRef.current--;
         const timer = controlsHintTimerRef.current;
         const alpha = timer > 60 ? 1 : timer / 60;

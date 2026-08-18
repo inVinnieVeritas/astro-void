@@ -158,7 +158,7 @@ export const HUD: React.FC<HUDProps> = ({
       {/* Top Header Row */}
       <div className={
         isTouchDevice
-          ? 'flex flex-col-reverse items-end w-full gap-2 pointer-events-none'
+          ? 'flex justify-between items-start w-full gap-2 pointer-events-none'
           : 'flex justify-between items-start gap-3 w-full pointer-events-none'
       }>
         {/* Left Stats Panel */}
@@ -167,7 +167,7 @@ export const HUD: React.FC<HUDProps> = ({
           onMouseEnter={() => setIsHoveredLeft(true)}
           onMouseLeave={() => setIsHoveredLeft(false)}
           className={`bg-[#0A0F19]/85 border border-[#30363D]/60 rounded-lg pointer-events-auto shadow-lg transition-all duration-300 ${
-            isTouchDevice ? 'w-full p-2 self-start' : 'p-3 min-w-[170px]'
+            isTouchDevice ? 'w-[200px] p-2 sm:w-[260px] md:w-[300px]' : 'p-3 min-w-[170px]'
           } ${
             isFadedLeft ? 'opacity-20 hover:opacity-100' : 'opacity-100'
           }`}
@@ -271,7 +271,9 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* Center Active Powerups Status Badges */}
-        <div ref={centerRef} className={`hidden sm:flex flex-col items-center gap-1.5 transition-all duration-300 ${
+        <div ref={centerRef} className={`hidden sm:flex flex-col gap-1.5 transition-all duration-300 ${
+          isTouchDevice ? 'landscape:absolute landscape:top-[4.5rem] landscape:right-3 landscape:items-end landscape:z-10 items-center' : 'items-center'
+        } ${
           isFadedCenter ? 'opacity-20' : 'opacity-100'
         }`}>
           {activePowerups.golden !== undefined && activePowerups.golden > 0 && (
@@ -330,7 +332,7 @@ export const HUD: React.FC<HUDProps> = ({
           onMouseEnter={() => setIsHoveredRight(true)}
           onMouseLeave={() => setIsHoveredRight(false)}
           className={`flex flex-col items-end gap-2 pointer-events-auto transition-all duration-300 ${
-            isTouchDevice ? 'self-end w-full' : ''
+            isTouchDevice ? '' : ''
           } ${
             isFadedRight ? 'opacity-20 hover:opacity-100' : 'opacity-100'
           }`}
