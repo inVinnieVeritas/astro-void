@@ -96,6 +96,24 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       ? hoveredMode === mode
       : gameMode === mode;
 
+
+  // Unlock AudioContext on first legitimate user interaction
+  useEffect(() => {
+    const unlockAudio = () => {
+      soundEngine.ensureContext();
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+
+    window.addEventListener('pointerdown', unlockAudio, { once: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
+
   // Allow SPACE or ENTER to trigger Start Game (if modals aren't open)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
