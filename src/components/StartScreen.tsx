@@ -19,6 +19,7 @@ import {
   Target
 } from 'lucide-react';
 import { GameMode, ControlScheme } from '../types';
+import { soundEngine } from '../audio/soundEngine';
 import { CodexModal } from './CodexModal';
 import { Maximize, Minimize } from 'lucide-react';
 import { 
@@ -75,6 +76,17 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showCodex, setShowCodex] = useState(false);
   const [hoveredMode, setHoveredMode] = useState<GameMode | null>(null);
+
+  const lastHoverTime = React.useRef<number>(0);
+  const playHoverSound = React.useCallback(() => {
+    if (window.matchMedia && window.matchMedia('(hover: none)').matches) return;
+    const now = performance.now();
+    if (now - lastHoverTime.current > 50) {
+      soundEngine.playSound('ui_hover');
+      lastHoverTime.current = now;
+    }
+  }, []);
+
 
   const isModeSelected = (mode: GameMode) => gameMode === mode;
   const isModeHovered = (mode: GameMode) => hoveredMode === mode;
@@ -465,7 +477,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             <span className="opacity-70 mr-2 sm:mr-3">&gt;</span>
             <span>DEEP SPACE INTERCEPTOR</span>
             <span className="mx-2 sm:mx-3 opacity-60">//</span>
-            <span className="text-[#58A6FF] opacity-100">ACTIVE<span className="animate-[cursorBlink_1s_step-end_infinite]">_</span></span>
+            <span className="text-[#58A6FF] opacity-100">ONLINE<span className="animate-[cursorBlink_1s_step-end_infinite]">_</span></span>
           </div>
         </div>        {/* Mode Selector - 3 Modes with Active vs Dimmed Styling */}
         <div className="w-full mb-6 sm:mb-8">
@@ -480,11 +492,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {/* Classic */}
-            <button
-              type="button"
+            <button type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('classic')}
-              onMouseEnter={() => setHoveredMode('classic')}
+              onMouseEnter={() => { setHoveredMode('classic'); playHoverSound(); }}
               onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
                 shouldShowStrongModeState('classic')
@@ -508,11 +519,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             </button>
 
             {/* Survival */}
-            <button
-              type="button"
+            <button type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('survival')}
-              onMouseEnter={() => setHoveredMode('survival')}
+              onMouseEnter={() => { setHoveredMode('survival'); playHoverSound(); }}
               onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
                 shouldShowStrongModeState('survival')
@@ -536,11 +546,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             </button>
 
             {/* Zen Void */}
-            <button
-              type="button"
+            <button type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('zen')}
-              onMouseEnter={() => setHoveredMode('zen')}
+              onMouseEnter={() => { setHoveredMode('zen'); playHoverSound(); }}
               onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
                 shouldShowStrongModeState('zen')
@@ -564,11 +573,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             </button>
 
             {/* Boss Rush (Wave 5) */}
-            <button
-              type="button"
+            <button type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('boss_rush')}
-              onMouseEnter={() => setHoveredMode('boss_rush')}
+              onMouseEnter={() => { setHoveredMode('boss_rush'); playHoverSound(); }}
               onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
                 shouldShowStrongModeState('boss_rush')
@@ -592,11 +600,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             </button>
             
             {/* Wave 10 Boss */}
-            <button
-              type="button"
+            <button type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('wave_10_boss')}
-              onMouseEnter={() => setHoveredMode('wave_10_boss')}
+              onMouseEnter={() => { setHoveredMode('wave_10_boss'); playHoverSound(); }}
               onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
                 shouldShowStrongModeState('wave_10_boss')
@@ -620,11 +627,10 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             </button>
 
             {/* Wave 15 Boss - THE GRID ARCHITECT */}
-            <button
-              type="button"
+            <button type="button"
               tabIndex={-1}
               onClick={() => onChangeGameMode('wave_15_boss')}
-              onMouseEnter={() => setHoveredMode('wave_15_boss')}
+              onMouseEnter={() => { setHoveredMode('wave_15_boss'); playHoverSound(); }}
               onMouseLeave={() => setHoveredMode(null)}
               className={`p-3.5 sm:p-4 rounded-xl border text-left transition-all duration-200 cursor-pointer ${
                 shouldShowStrongModeState('wave_15_boss')
@@ -650,8 +656,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         </div>
 
         {/* Primary Action Button - Most Prominent */}
-        <button
-          type="button"
+        <button onMouseEnter={playHoverSound} type="button"
           tabIndex={-1}
           onClick={() => onStartGame(gameMode)}
           className="w-full sm:w-auto min-w-[280px] sm:min-w-[340px] py-4 sm:py-5 px-8 sm:px-10 rounded-2xl bg-gradient-to-r from-[#238636] via-[#2EA043] to-[#3FB950] hover:from-[#2EA043] hover:to-[#4ade80] text-[#FFFFFF] font-mono font-extrabold text-xl sm:text-2xl tracking-widest uppercase shadow-[0_0_35px_rgba(46,160,67,0.5)] hover:shadow-[0_0_50px_rgba(46,160,67,0.7)] transition-all transform hover:scale-[1.03] active:scale-[0.98] flex items-center justify-center gap-3 my-2 cursor-pointer"
@@ -667,8 +672,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
         {/* Bottom Toolbar & Settings */}
         <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 w-full pt-5 border-t border-[#30363D]">
           {/* How to Play Modal Trigger */}
-          <button
-            type="button"
+          <button onMouseEnter={playHoverSound} type="button"
             tabIndex={-1}
             onClick={() => setShowHowToPlay(true)}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#38BDF8] hover:border-[#38BDF8]/50 text-xs font-mono transition-all cursor-pointer"
@@ -678,8 +682,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           </button>
 
           {/* Codex Modal Trigger */}
-          <button
-            type="button"
+          <button onMouseEnter={playHoverSound} type="button"
             tabIndex={-1}
             onClick={() => setShowCodex(true)}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#EC4899] hover:border-[#EC4899]/50 text-xs font-mono transition-all cursor-pointer"
@@ -688,8 +691,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             INTEL / CODEX
           </button>
 
-          <button
-            type="button"
+          <button onMouseEnter={playHoverSound} type="button"
             tabIndex={-1}
             onClick={onOpenLeaderboard}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#D29922] hover:border-[#D29922]/50 text-xs font-mono transition-all cursor-pointer"
@@ -698,8 +700,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             HIGH SCORES
           </button>
 
-          <button
-            type="button"
+          <button onMouseEnter={playHoverSound} type="button"
             tabIndex={-1}
             onClick={onOpenAchievements}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#A371F7] hover:border-[#A371F7]/50 text-xs font-mono transition-all cursor-pointer"
@@ -708,8 +709,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             ACHIEVEMENTS
           </button>
 
-          <button
-            type="button"
+          <button onMouseEnter={playHoverSound} type="button"
             tabIndex={-1}
             onClick={onOpenChallenges}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#38BDF8] hover:border-[#38BDF8]/50 text-xs font-mono transition-all cursor-pointer"
@@ -718,8 +718,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             CHALLENGES
           </button>
 
-          <button
-            type="button"
+          <button onMouseEnter={playHoverSound} type="button"
             tabIndex={-1}
             onClick={onOpenSettings}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#58A6FF] hover:border-[#58A6FF]/50 text-xs font-mono transition-all cursor-pointer"
@@ -728,8 +727,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             SETTINGS
           </button>
 
-          <button
-            type="button"
+          <button onMouseEnter={playHoverSound} type="button"
             tabIndex={-1}
             onClick={onToggleMute}
             className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#161B22] border border-[#30363D] text-[#8B949E] hover:text-[#E6EDF3] text-xs font-mono transition-all cursor-pointer"
@@ -738,8 +736,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             {isMuted ? <VolumeX className="w-4 h-4 text-[#F85149]" /> : <Volume2 className="w-4 h-4 text-[#3FB950]" />}
           </button>
 
-          <button
-            type="button"
+          <button onMouseEnter={playHoverSound} type="button"
             tabIndex={-1}
             onClick={(e) => {
               e.currentTarget.blur();
@@ -765,8 +762,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
                 <HelpCircle className="w-5 h-5" />
                 PILOT FLIGHT CONTROLS
               </div>
-              <button
-                type="button"
+              <button onMouseEnter={playHoverSound} type="button"
                 onClick={() => setShowHowToPlay(false)}
                 className="p-1.5 rounded-lg text-[#8B949E] hover:text-white hover:bg-[#161B22] transition-all cursor-pointer"
               >
@@ -825,8 +821,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
               <span>Touchscreens automatically display responsive virtual thrust pedals, joystick pads, and fire buttons.</span>
             </div>
 
-            <button
-              type="button"
+            <button onMouseEnter={playHoverSound} type="button"
               onClick={() => setShowHowToPlay(false)}
               className="w-full py-3 rounded-xl bg-[#238636] hover:bg-[#2EA043] text-white font-bold text-sm tracking-wider uppercase transition-all cursor-pointer"
             >

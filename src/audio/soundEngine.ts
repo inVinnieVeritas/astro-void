@@ -436,13 +436,61 @@ class SoundEngine {
   }
 
   // --- Sound Effects ---
-  public playSound(type: 'shoot' | 'laser' | 'explode' | 'heavy_explode' | 'powerup' | 'golden' | 'emp' | 'ufo' | 'death' | 'shield_hit' | 'jump') {
+  public playSound(type: 'shoot' | 'laser' | 'explode' | 'heavy_explode' | 'powerup' | 'golden' | 'emp' | 'ufo' | 'death' | 'shield_hit' | 'jump' | 'ui_hover') {
     if (!this.sfxOn) return;
     this.ensureContext();
     if (!this.ctx) return;
 
     const now = this.ctx.currentTime;
     const sfxVol = this.masterVolume * this.sfxVolume;
+
+    if (type === 'ui_hover') {
+      const osc1 = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const osc2Gain = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+
+      osc1.type = 'triangle';
+      osc2.type = 'square';
+
+      // Downward pitch movement
+      osc1.frequency.setValueAtTime(1050, now);
+      osc1.frequency.exponentialRampToValueAtTime(620, now + 0.055);
+      
+      // Second quiet square oscillator one octave lower for a digital edge
+      osc2.frequency.setValueAtTime(525, now);
+      osc2.frequency.exponentialRampToValueAtTime(310, now + 0.055);
+
+      // Mix osc2 lower
+      osc2Gain.gain.value = 0.25;
+
+      // Filter to keep it synthetic but not overly piercing
+      filter.type = 'lowpass';
+      filter.frequency.value = 2400;
+
+      // Envelope: Fast attack, rapid decay
+      const vol = 0.11 * sfxVol;
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(vol, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.055);
+
+      // Routing
+      osc1.connect(filter);
+      osc2.connect(osc2Gain);
+      osc2Gain.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.ctx.destination);
+
+      try {
+        osc1.start(now);
+        osc2.start(now);
+        osc1.stop(now + 0.06);
+        osc2.stop(now + 0.06);
+      } catch(e) {}
+      return;
+    }
+
 
     if (type === 'death' || type === 'heavy_explode') {
       const bufferSize = this.ctx.sampleRate * 1.4;
