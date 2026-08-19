@@ -4,11 +4,15 @@
   <h3><a href="https://astro-smash.vercel.app/">🎮 PLAY NOW</a></h3>
   <br />
   <!-- VIDEO PLACEHOLDER: Insert GitHub hosted gameplay video link here -->
-  <img src="docs/screenshots/astro-void-dreadnought.webp" alt="Astro Void Dreadnought Hero" width="800" />
+  <img src="docs/screenshots/astro-void-grid-architect.webp" alt="Astro Void Grid Architect Hero" width="800" />
 </div>
 
 ## About
 **ASTRO VOID** is a high-octane modern reimagining of the classic arcade space shooter. It combines fluid, physics-based ship movement with dazzling neon vector graphics, chaotic enemy swarms, and massive multi-phase boss encounters. Designed to run smoothly in modern browsers, it scales gracefully across desktop, tablet, and mobile devices.
+
+<div align="center">
+  <img src="docs/screenshots/astro-void-black-hole.webp" alt="Black Hole Hazard" width="700" />
+</div>
 
 ## Features
 - 🚀 **Intense Vector Combat**: Fluid 60fps action with particle-rich explosions and screen-shaking impacts.
@@ -63,9 +67,8 @@ ASTRO VOID supports multiple input methods natively.
 
 <div align="center">
   <img src="docs/screenshots/astro-void-gameplay.webp" alt="Astro Void Gameplay" width="400" />
-  <img src="docs/screenshots/astro-void-black-hole.webp" alt="Black Hole Hazard" width="400" />
+  <img src="docs/screenshots/astro-void-dreadnought.webp" alt="Dreadnought Boss Encounter" width="400" />
   <img src="docs/screenshots/astro-void-core-severance.webp" alt="Core Severance Boss Encounter" width="400" />
-  <img src="docs/screenshots/astro-void-grid-architect.webp" alt="Grid Architect Boss Encounter" width="400" />
 </div>
 
 ## Tech Stack
