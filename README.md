@@ -89,7 +89,4 @@ npm run dev
 ```
 
 ### Development Note
-Developers testing boss tuning or collision behavior can jump directly to specific encounters using URL parameters:
-- `?bossTest=1` – Spawns a Dreadnought immediately.
-- `?bossTest=2` – Spawns Core Severance immediately.
-- `?bossTest=3` – Spawns the Grid Architect immediately.
+For boss testing and tuning, append `?bossTest=1` to the game URL. This reveals a hidden DEV / BOSS TEST section on the mission-select screen with direct shortcuts to the Wave 5 Dreadnought, Wave 10 Core Severance, and Wave 15 Grid Architect encounters.
