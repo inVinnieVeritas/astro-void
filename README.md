@@ -46,7 +46,7 @@ Destroy special UFOs and glowing asteroids to secure exotic drops:
 - ⏱️ **Time Warp**: Slow down time and hostile physics while maintaining your ship's maneuverability.
 
 <div align="center">
-  <img src="docs/screenshots/astro-void-chrono-stasis.webp" alt="Chrono Stasis Power-up" width="800" />
+  <img src="docs/screenshots/astro-void-core-severance.webp" alt="Core Severance Boss Encounter" width="800" />
 </div>
 
 ## Controls
@@ -73,7 +73,7 @@ ASTRO VOID supports multiple input methods natively.
   <img src="docs/screenshots/astro-void-gameplay.webp" alt="Astro Void Gameplay" width="400" />
   <img src="docs/screenshots/astro-void-dreadnought.webp" alt="Dreadnought Boss Encounter" width="400" />
   <br />
-  <img src="docs/screenshots/astro-void-core-severance.webp" alt="Core Severance Boss Encounter" width="400" />
+  <img src="docs/screenshots/astro-void-chrono-stasis.webp" alt="Chrono Stasis Power-up" width="400" />
   <img src="docs/screenshots/astro-void-hyper-crystal.webp" alt="Hyper Crystal Power-up" width="400" />
 </div>
 
