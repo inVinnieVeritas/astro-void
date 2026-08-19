@@ -1,4 +1,5 @@
 export type GameMode = 'classic' | 'survival' | 'zen' | 'boss_rush' | 'wave_10_boss' | 'wave_15_boss';
+export type Difficulty = 'easy' | 'normal' | 'hard';
 export type ControlScheme = 'classic' | 'mouse' | 'dual_stick';
 
 export type AsteroidType = 'normal' | 'ore' | 'molten' | 'volatile' | 'triple' | 'shield' | 'explosive' | 'crystal' | 'golden' | 'magma' | 'cryo' | 'magnetic' | 'hive' | 'phantom' | 'planetoid' | 'moon';
@@ -51,6 +52,7 @@ export interface Bullet {
   maxLife: number;
   size: number;
   isLaser?: boolean;
+  laserLastHitFrame?: Map<string, number>;
   isMine?: boolean;
   color?: string;
   isPlayer: boolean;

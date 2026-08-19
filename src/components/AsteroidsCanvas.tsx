@@ -15,10 +15,18 @@ import {
   BinaryPlasmaCore,
   PlasmaCoreNode,
   GameMode,
+  Difficulty,
   ControlScheme,
   RunStatsSnapshot
 } from '../types';
 import { soundEngine } from '../audio/soundEngine';
+
+const DIFFICULTY_CONFIG: Record<Difficulty, { enemySpeed: number; fireRate: number; projectileSpeed: number; bossAttackRate: number }> = {
+  easy: { enemySpeed: 1.0, fireRate: 1.0, projectileSpeed: 1.0, bossAttackRate: 1.0 },
+  normal: { enemySpeed: 1.10, fireRate: 1.20, projectileSpeed: 1.15, bossAttackRate: 1.20 },
+  hard: { enemySpeed: 1.18, fireRate: 1.40, projectileSpeed: 1.25, bossAttackRate: 1.35 }
+};
+
 import { HudRect } from './HUD';
 
 const MOBILE_TARGET_MAX_TURN_RATE = 0.11;
@@ -207,6 +215,7 @@ function getRedHexagonInnerSprite(): HTMLCanvasElement {
 interface AsteroidsCanvasProps {
   isTouchDevice?: boolean;
   gameMode: GameMode;
+  difficulty: Difficulty;
   initialWave?: number;
   initialLives: number;
   controlScheme: ControlScheme;
@@ -246,6 +255,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   // is managed at the App.tsx root and passed down to HUD/StartScreen
   // to avoid re-rendering and stealing focus from this canvas component.
   gameMode,
+  difficulty,
   initialWave,
   initialLives,
   controlScheme,
@@ -479,6 +489,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
   // Shield Rebalancing & Staggered Off-Screen Spawning Refs
   const shieldConsecutivePickupsRef = useRef(0);
   const dropsThisFrameRef = useRef(0);
+  const frameCountRef = useRef(0);
   const spawnQueueRef = useRef<{
     type: 'asteroid' | 'ufo' | 'nebula' | 'plasmaCore';
     entity: Asteroid | UFO | IonizingNebula | BinaryPlasmaCore;
@@ -1388,7 +1399,8 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
       health = 2;
     }
 
-    const baseSpeed = type === 'planetoid' ? (0.08 + Math.random() * 0.08) : (0.6 + Math.random() * 1.4);
+    const diff = DIFFICULTY_CONFIG[difficulty];
+    const baseSpeed = (type === 'planetoid' ? (0.08 + Math.random() * 0.08) : (0.6 + Math.random() * 1.4)) * diff.enemySpeed;
 
     const newAst: Asteroid = {
       id: Math.random().toString(),
@@ -1536,7 +1548,7 @@ export const AsteroidsCanvas: React.FC<AsteroidsCanvasProps> = ({
             vy: 0,
             radius: 115 * currentBossScale,
 bossScale: currentBossScale,
-            speed: 1.2,
+            speed: 1.2 * DIFFICULTY_CONFIG[difficulty].enemySpeed,
             shootTimer: 0,
             type: 'technoking',
             health: bossHp,
@@ -2629,14 +2641,15 @@ bossScale: currentBossScale,
       const spawnX = fromLeft ? -60 : w + 60;
       const spawnY = 120 + Math.random() * (h - 240);
       for (let s = 0; s < 3; s++) {
+        const diff = DIFFICULTY_CONFIG[difficulty];
         const swarmer: UFO = {
           id: Math.random().toString(),
           x: spawnX + (s - 1) * 22,
           y: spawnY + (Math.random() - 0.5) * 35,
-          vx: fromLeft ? 2.8 : -2.8,
-          vy: (Math.random() - 0.5) * 1.5,
+          vx: (fromLeft ? 2.8 : -2.8) * diff.enemySpeed,
+          vy: ((Math.random() - 0.5) * 1.5) * diff.enemySpeed,
           radius: 14,
-          speed: fromLeft ? 2.8 : -2.8,
+          speed: (fromLeft ? 2.8 : -2.8) * diff.enemySpeed,
           shootTimer: Math.floor(Math.random() * 40),
           type: 'swarmer',
           health: 1,
@@ -2665,14 +2678,15 @@ bossScale: currentBossScale,
         initialVy = Math.sin(tAngle) * speed * 1.5;
       }
 
+      const diff = DIFFICULTY_CONFIG[difficulty];
       const newUfo: UFO = {
         id: Math.random().toString(),
         x: spawnX,
         y: spawnY,
-        vx: initialVx,
-        vy: initialVy,
+        vx: initialVx * diff.enemySpeed,
+        vy: initialVy * diff.enemySpeed,
         radius,
-        speed: fromLeft ? speed : -speed,
+        speed: (fromLeft ? speed : -speed) * diff.enemySpeed,
         shootTimer: 0,
         type,
         health,
@@ -2979,6 +2993,7 @@ bossScale: currentBossScale,
     window.addEventListener('resize', handleResize);
 
     const updateAndRender = () => {
+      frameCountRef.current++;
       const now = performance.now();
       let delta = now - lastSchedulerTimeRef.current;
       lastSchedulerTimeRef.current = now;
@@ -4085,10 +4100,10 @@ bossScale: currentBossScale,
             id: 'supply-' + Math.random(),
             x: fromLeft ? -50 : w + 50,
             y: 100 + Math.random() * (h - 200),
-            vx: fromLeft ? 3.5 : -3.5,
-            vy: (Math.random() - 0.5) * 1.0,
+            vx: (fromLeft ? 3.5 : -3.5) * DIFFICULTY_CONFIG[difficulty].enemySpeed,
+            vy: (Math.random() - 0.5) * 1.0 * DIFFICULTY_CONFIG[difficulty].enemySpeed,
             radius: 18,
-            speed: 3.5,
+            speed: 3.5 * DIFFICULTY_CONFIG[difficulty].enemySpeed,
             shootTimer: 0,
             type: 'supply',
             health: 2,
@@ -4322,7 +4337,7 @@ bossScale: currentBossScale,
           // BOSS MECHANICS & AI
           if (ufo.isBoss) {
             // Minion Support System: Periodically spawn 1-2 weak minions every 9-14 seconds (540-840 frames)
-            ufo.minionSpawnTimer = (ufo.minionSpawnTimer || 0) + timeFactor;
+            ufo.minionSpawnTimer = (ufo.minionSpawnTimer || 0) + timeFactor * DIFFICULTY_CONFIG[difficulty].bossAttackRate;
             if (!ufo.nextMinionInterval) ufo.nextMinionInterval = 540 + Math.random() * 300;
             if (ufo.minionSpawnTimer >= ufo.nextMinionInterval) {
               ufo.minionSpawnTimer = 0;
@@ -4336,10 +4351,10 @@ bossScale: currentBossScale,
                   id: 'minion-' + Math.random(),
                   x: spawnX,
                   y: spawnY,
-                  vx: (Math.random() - 0.5) * 2.5,
-                  vy: (Math.random() - 0.5) * 1.5,
+                  vx: ((Math.random() - 0.5) * 2.5) * DIFFICULTY_CONFIG[difficulty].enemySpeed,
+                  vy: ((Math.random() - 0.5) * 1.5) * DIFFICULTY_CONFIG[difficulty].enemySpeed,
                   radius: mType === 'swarmer' ? 14 : 20,
-                  speed: 2.2,
+                  speed: 2.2 * DIFFICULTY_CONFIG[difficulty].enemySpeed,
                   shootTimer: 0,
                   type: mType,
                   health: 1,
@@ -4376,7 +4391,7 @@ bossScale: currentBossScale,
                 ufo.x += (targetX - ufo.x) * 0.08 * timeFactor;
                 ufo.y += (targetY - ufo.y) * 0.08 * timeFactor;
               }
-              ufo.shootTimer += timeFactor;
+              ufo.shootTimer += timeFactor * DIFFICULTY_CONFIG[difficulty].fireRate;
               if (ufo.shootTimer > 120 && ship.alive) {
                 ufo.shootTimer = 0;
                 const angle = Math.atan2(ship.y - ufo.y, ship.x - ufo.x);
@@ -4457,7 +4472,7 @@ bossScale: currentBossScale,
               const orbitalSequenceActive = (ufo.orbitalWarning || 0) > 0 || (ufo.orbitalFiring || 0) > 0;
 
               // Attack 1: Rapid Fire (Fan of projectiles)
-              ufo.rapidFireTimer = (ufo.rapidFireTimer || 0) + timeFactor;
+              ufo.rapidFireTimer = (ufo.rapidFireTimer || 0) + timeFactor * DIFFICULTY_CONFIG[difficulty].bossAttackRate;
               const stormInterval = ufo.bossPhase === 3 ? 90 : (ufo.bossPhase === 2 ? 120 : 150);
               if (!beamSequenceActive && !orbitalSequenceActive) {
                 if (ufo.rapidFireTimer > stormInterval && ship.alive) {
@@ -4541,7 +4556,7 @@ bossScale: currentBossScale,
               } else if (ufo.laserSweepRecovery > 0) {
                 ufo.laserSweepRecovery -= timeFactor;
               } else {
-                ufo.shootTimer += timeFactor;
+                ufo.shootTimer += timeFactor * DIFFICULTY_CONFIG[difficulty].fireRate;
                 if (ufo.shootTimer > (ufo.bossPhase === 3 ? 150 : 220) && ship.alive) {
                   if (!orbitalSequenceActive && !(ufo.gravityPulseActive && ufo.gravityPulseActive > 0)) {
                     ufo.shootTimer = 0;
@@ -4570,7 +4585,7 @@ bossScale: currentBossScale,
                     }
                   }
                 } else {
-                  ufo.chargeTimer = (ufo.chargeTimer || 0) + timeFactor;
+                  ufo.chargeTimer = (ufo.chargeTimer || 0) + timeFactor * DIFFICULTY_CONFIG[difficulty].bossAttackRate;
                   if (ufo.chargeTimer > 350 && ship.alive) {
                     if (!beamSequenceActive) {
                       ufo.chargeTimer = 0;
@@ -4581,7 +4596,7 @@ bossScale: currentBossScale,
                   }
                 }
 
-                ufo.gravityPulseTimer = (ufo.gravityPulseTimer || 0) + timeFactor;
+                ufo.gravityPulseTimer = (ufo.gravityPulseTimer || 0) + timeFactor * DIFFICULTY_CONFIG[difficulty].bossAttackRate;
                 if (ufo.gravityPulseTimer > 400) {
                   if (!beamSequenceActive && !orbitalSequenceActive) {
                     ufo.gravityPulseTimer = 0;
@@ -4606,7 +4621,7 @@ bossScale: currentBossScale,
 
               // Phase 3: Desperation Spiral
               if (ufo.bossPhase === 3) {
-                ufo.spiralTimer = (ufo.spiralTimer || 0) + timeFactor;
+                ufo.spiralTimer = (ufo.spiralTimer || 0) + timeFactor * DIFFICULTY_CONFIG[difficulty].bossAttackRate;
                 if (ufo.spiralTimer > 250 && ship.alive) {
                   if (!beamSequenceActive && !orbitalSequenceActive) {
                     ufo.spiralTimer = 0;
@@ -4755,7 +4770,7 @@ bossScale: currentBossScale,
             // Check Phase 2 transition (HP <= 50%)
             if (ufo.health <= ufo.maxHealth * 0.5 && ufo.bossPhase === 1) {
               ufo.bossPhase = 2;
-              ufo.speed = 3.2;
+              ufo.speed = 3.2 * DIFFICULTY_CONFIG[difficulty].enemySpeed;
               addShockwave(ufo.x, ufo.y, 250, '#ff0055');
               soundEngine.playSound('heavy_explode');
               addFloatingText(ufo.x, ufo.y + ufo.radius + 20, '⚠️ PHASE 2 OVERDRIVE AGGRESSIVE MODE!', '#ff0055', 24);
@@ -4790,7 +4805,7 @@ bossScale: currentBossScale,
             // State Machine Logic
             if (ufo.bossState === 'burst') {
               // State A: Burst Fire (4 seconds / 240 frames)
-              ufo.shootTimer += timeFactor;
+              ufo.shootTimer += timeFactor * DIFFICULTY_CONFIG[difficulty].fireRate;
               // Fire in controlled bursts: fires for 1 sec (60 frames), pauses for 1 sec (60 frames)
               const isFiringWindow = (ufo.bossStateTimer % 120) < 60;
               
@@ -4936,7 +4951,7 @@ bossScale: currentBossScale,
               }
             } else if (ufo.bossState === 'mines') {
               // State E: Proximity Mines (4 seconds / 240 frames)
-              ufo.shootTimer += timeFactor;
+              ufo.shootTimer += timeFactor * DIFFICULTY_CONFIG[difficulty].fireRate;
               // Fire a mine every 45 frames
               if (ufo.shootTimer >= 45 && ship.alive) {
                 ufo.shootTimer = 0;
@@ -4982,7 +4997,7 @@ bossScale: currentBossScale,
                 ufo.y = core.y + Math.sin(ufo.orbitAngle) * (ufo.orbitRadius || 220);
                 
                 // Attack logic
-                ufo.shootTimer += timeFactor;
+                ufo.shootTimer += timeFactor * DIFFICULTY_CONFIG[difficulty].fireRate;
                 if (ufo.shootTimer > (nodes.length === 3 ? 120 : nodes.length === 2 ? 80 : 50) && ship.alive) {
                    ufo.shootTimer = 0;
                    if (Math.random() < 0.3) {
@@ -5058,7 +5073,7 @@ bossScale: currentBossScale,
                 ufo.vy += Math.sin(ufo.angle) * 0.25 * timeFactor;
               }
 
-              const maxSpd = ufo.isBursting ? 5.2 : 3.2;
+              const maxSpd = (ufo.isBursting ? 5.2 : 3.2) * DIFFICULTY_CONFIG[difficulty].enemySpeed;
               const curSpd = Math.hypot(ufo.vx, ufo.vy);
               if (curSpd > maxSpd) {
                 ufo.vx = (ufo.vx / curSpd) * maxSpd;
@@ -5128,7 +5143,7 @@ bossScale: currentBossScale,
             ufo.y += Math.sin((ufo.x + ui * 50) * 0.01) * 0.8 * timeFactor;
           }
 
-          ufo.shootTimer += timeFactor;
+          ufo.shootTimer += timeFactor * DIFFICULTY_CONFIG[difficulty].fireRate;
 
           // Ship vs UFO direct crash
           if (ship.alive) {
@@ -5211,7 +5226,7 @@ bossScale: currentBossScale,
               }
             } else if (ufo.type === 'dreadnought' && !ufo.isBoss) {
               // Dreadnought Death Beam Charge
-              ufo.chargeTimer = (ufo.chargeTimer || 0) + timeFactor;
+              ufo.chargeTimer = (ufo.chargeTimer || 0) + timeFactor * DIFFICULTY_CONFIG[difficulty].fireRate;
               if (ufo.chargeTimer > 180) {
                 ufo.isChargingBeam = true;
               }
@@ -5354,6 +5369,13 @@ bossScale: currentBossScale,
                     continue;
                   }
 
+                  if (b.isLaser) {
+  const lastHit = b.laserLastHitFrame?.get(ufo.id) || 0;
+  if (frameCountRef.current - lastHit < 4) {
+    continue;
+  }
+}
+
                   // Weak spot check: glowing eyes / nose bridge area
                   const distToEyes = Math.hypot(b.x - ufo.x, b.y - (ufo.y - 20));
                   const isEyeHit = distToEyes < 42;
@@ -5366,6 +5388,10 @@ bossScale: currentBossScale,
                   ufo.health -= dmg;
                   state.bossDamageDealt += dmg;
                   recordShotHit(b);
+                  if (b.isLaser) {
+  if (!b.laserLastHitFrame) b.laserLastHitFrame = new Map();
+  b.laserLastHitFrame.set(ufo.id, frameCountRef.current);
+}
                   
                   if (isEyeHit) {
                     emitArchitectHitFeedback(b.x, b.y, '#ffff00', `CORE CRITICAL -${dmg}`, true);
@@ -5391,8 +5417,18 @@ bossScale: currentBossScale,
                      if (!b.isLaser) bulletsRef.current.splice(i, 1);
                   } else {
                      // Vulnerable
+                     if (b.isLaser) {
+  const lastHit = b.laserLastHitFrame?.get(ufo.id) || 0;
+  if (frameCountRef.current - lastHit < 4) {
+    continue;
+  }
+}
                      const dmg = (b.isLaser ? 25 : 10);
                      ufo.health -= dmg;
+                     if (b.isLaser) {
+  if (!b.laserLastHitFrame) b.laserLastHitFrame = new Map();
+  b.laserLastHitFrame.set(ufo.id, frameCountRef.current);
+}
                      state.bossDamageDealt += dmg;
                      recordShotHit(b);
                      emitCoreSeveranceHitFeedback(b.x, b.y, '#ffffff', `🎯 CORE HIT -${Math.floor(dmg)} HP`, 'vulnerable');
@@ -5411,6 +5447,12 @@ bossScale: currentBossScale,
                   // OVERHEATED VULNERABLE PHASE: SHIELD DROPPED & Core Defense Exposed!
                   const hitRadius = ufo.radius + 15;
                   if (dist < hitRadius + b.size) {
+                    if (b.isLaser) {
+  const lastHit = b.laserLastHitFrame?.get(ufo.id) || 0;
+  if (frameCountRef.current - lastHit < 4) {
+    continue;
+  }
+}
                     const mouthCenterX = ufo.x;
                     const mouthCenterY = ufo.y + ufo.radius * 0.73;
                     const mouthRadiusX = ufo.radius * 0.42;
@@ -5427,6 +5469,10 @@ bossScale: currentBossScale,
                     const dmg = isMouthWeakHit ? baseDamage * 3 : baseDamage;
 
                     ufo.health -= dmg;
+                    if (b.isLaser) {
+  if (!b.laserLastHitFrame) b.laserLastHitFrame = new Map();
+  b.laserLastHitFrame.set(ufo.id, frameCountRef.current);
+}
                     state.bossDamageDealt += dmg;
                     recordShotHit(b);
 
@@ -5469,6 +5515,12 @@ bossScale: currentBossScale,
 
                     if (isThroughGap) {
                       // DIRECT CENTRAL CORE HIT THROUGH ROTATING SHIELD GAP!
+                      if (b.isLaser) {
+                        const lastHit = b.laserLastHitFrame?.get(ufo.id) || 0;
+                        if (frameCountRef.current - lastHit < 4) {
+                          continue;
+                        }
+                      }
                       const dmg = b.isLaser ? 3 : 5;
                       ufo.health -= dmg;
                       state.bossDamageDealt += dmg;
@@ -5504,12 +5556,22 @@ bossScale: currentBossScale,
               }
             } else {
               if (dist < ufo.radius + b.size + 6) {
+                if (ufo.type === 'shield_node' && b.isLaser) {
+  const lastHit = b.laserLastHitFrame?.get(ufo.id) || 0;
+  if (frameCountRef.current - lastHit < 4) {
+    continue;
+  }
+}
                 let dmg = b.isLaser ? 3 : 1;
                 if (ufo.type === 'shield_node') {
                   dmg = b.isLaser ? 40 : 20; // Increased damage to nodes so they can be reasonably destroyed!
                 }
 
                 ufo.health -= dmg;
+                if (ufo.type === 'shield_node' && b.isLaser) {
+  if (!b.laserLastHitFrame) b.laserLastHitFrame = new Map();
+  b.laserLastHitFrame.set(ufo.id, frameCountRef.current);
+}
                 recordShotHit(b);
                 
                 if (ufo.type === 'dreadnought') {
@@ -5542,8 +5604,9 @@ bossScale: currentBossScale,
         // UFO Bullets vs Ship
         for (let i = ufoBulletsRef.current.length - 1; i >= 0; i--) {
           const ub = ufoBulletsRef.current[i];
-          ub.x += ub.vx * timeFactor;
-          ub.y += ub.vy * timeFactor;
+          const diffProjSpeed = DIFFICULTY_CONFIG[difficulty].projectileSpeed;
+          ub.x += ub.vx * timeFactor * diffProjSpeed;
+          ub.y += ub.vy * timeFactor * diffProjSpeed;
           ub.life -= timeFactor;
 
           // Kinetic Repulsor deflects enemy bullets away from ship!

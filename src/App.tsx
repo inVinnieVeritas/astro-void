@@ -10,13 +10,14 @@ import { GameOverModal } from './components/GameOverModal';
 import { StartScreen } from './components/StartScreen';
 import { StartScreenSpaceArt } from './components/StartScreenSpaceArt';
 import { soundEngine } from './audio/soundEngine';
-import { GameMode, ControlScheme, HighScoreRecord, LifetimeStats, Achievement, RunStatsSnapshot } from './types';
+import { GameMode, Difficulty, ControlScheme, HighScoreRecord, LifetimeStats, Achievement, RunStatsSnapshot } from './types';
 
 export default function App() {
   const showSpaceArtGallery = new URLSearchParams(window.location.search).get('art') === '1';
 
   // Game Configuration State
   const [gameMode, setGameMode] = useState<GameMode>('classic');
+  const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [isTouchDevice, setIsTouchDevice] = useState(false);
 
   useEffect(() => {
@@ -588,6 +589,7 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         isTouchDevice={isTouchDevice}
         key={gameKey}
         gameMode={gameMode}
+        difficulty={difficulty}
         initialWave={wave}
         initialLives={lives}
         controlScheme={controlScheme}
@@ -623,6 +625,8 @@ const getInitialLivesForMode = (mode: GameMode): number => {
         <StartScreen
           highScore={highScore}
           gameMode={gameMode}
+          difficulty={difficulty}
+          onChangeDifficulty={setDifficulty}
           onChangeGameMode={handleSettingsModeChange}
           controlScheme={controlScheme}
           onChangeControlScheme={setControlScheme}
