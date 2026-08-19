@@ -24,7 +24,7 @@
 ## Game Modes
 - **Classic**: The definitive ASTRO VOID experience. Face progressively difficult waves, challenging bosses, and earn extra lives through score milestones.
 - **Survival**: Pure endurance. Only one life, escalating threat levels, and overwhelming enemy numbers. How long can you last?
-- **Zen Void**: A relaxed, endless sandbox mode with no game-over. Infinite lives and continuous action.
+- **Zen Void**: An endless invincible practice mode with no game-over and rewards disabled.
 
 ## Threat Levels
 Tune the simulation to your skill level:
@@ -44,6 +44,10 @@ Destroy special UFOs and glowing asteroids to secure exotic drops:
 - 💥 **EMP**: A screen-clearing pulse that annihilates weak enemies and heavily damages bosses.
 - 🛡️ **Deflector Shield**: Temporary invulnerability against one fatal impact.
 - ⏱️ **Time Warp**: Slow down time and hostile physics while maintaining your ship's maneuverability.
+
+<div align="center">
+  <img src="docs/screenshots/astro-void-chrono-stasis.webp" alt="Chrono Stasis Power-up" width="800" />
+</div>
 
 ## Controls
 ASTRO VOID supports multiple input methods natively.
@@ -68,7 +72,9 @@ ASTRO VOID supports multiple input methods natively.
 <div align="center">
   <img src="docs/screenshots/astro-void-gameplay.webp" alt="Astro Void Gameplay" width="400" />
   <img src="docs/screenshots/astro-void-dreadnought.webp" alt="Dreadnought Boss Encounter" width="400" />
+  <br />
   <img src="docs/screenshots/astro-void-core-severance.webp" alt="Core Severance Boss Encounter" width="400" />
+  <img src="docs/screenshots/astro-void-hyper-crystal.webp" alt="Hyper Crystal Power-up" width="400" />
 </div>
 
 ## Tech Stack
@@ -76,7 +82,7 @@ ASTRO VOID supports multiple input methods natively.
 - **TypeScript**
 - **Vite**
 - **Tailwind CSS**
-- **Framer Motion** (for UI animations)
+- **Motion** (for UI animations)
 - **HTML5 Canvas** (for high-performance game rendering loop)
 
 ## Local Development
