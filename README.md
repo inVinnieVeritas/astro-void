@@ -11,7 +11,7 @@
 **ASTRO VOID** is a high-octane modern reimagining of the classic arcade space shooter. It combines fluid, physics-based ship movement with dazzling neon vector graphics, chaotic enemy swarms, and massive multi-phase boss encounters. Designed to run smoothly in modern browsers, it scales gracefully across desktop, tablet, and mobile devices.
 
 <div align="center">
-  <img src="docs/screenshots/astro-void-black-hole.webp" alt="Black Hole Hazard" width="700" />
+  <img src="docs/screenshots/astro-void-black-hole.webp" alt="Black Hole Hazard" width="800" />
 </div>
 
 ## Features
